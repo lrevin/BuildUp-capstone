@@ -1,0 +1,12 @@
+<resources>
+
+    <!-- Base application theme. -->
+    <!-- 앱 화면은 밝은 디자인만 있으므로 Light 고정, 달력 등 시스템 창 강조색은 브랜드 남색 -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <item name="colorPrimary">#121722</item>
+        <item name="colorPrimaryDark">#121722</item>
+        <item name="colorAccent">#121722</item>
+    </style>
+
+</resources>

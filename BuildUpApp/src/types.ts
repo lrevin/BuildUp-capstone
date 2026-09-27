@@ -1,0 +1,256 @@
+// 앱 전체에서 쓰는 데이터 모양(나중에 서버 API 응답도 이 모양에 맞춘다)
+
+// 계정 종류: 현장 관리자 / 일반 작업자 / 본사 관계자
+// (현장 안에서의 권한은 현장마다 정해진다: 현장을 만든 사람 = 관리자, 코드로 참여 = 작업자.
+//  그래서 현장 관리자도 다른 현장에서는 작업자일 수 있다)
+export type Role = 'admin' | 'worker' | 'hq';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: Role;
+  company?: string; // 현장 관리자: 회사·사무소명 / 본사 관계자: 본사명
+  companyCode?: string | null; // 본사 관계자만: 6자리 본사 코드
+  hqName?: string | null; // 현장 관리자만: 보고하는 본사(null이면 최고 책임자)
+}
+
+export interface SignUpInput {
+  role: Role;
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+  company?: string; // 현장 관리자: 회사·사무소명(선택) / 본사 관계자(새 본사 등록): 본사명
+  companyCode?: string; // 본사 관계자: 합류할 본사 코드 / 현장 관리자: 보고할 본사 코드(없으면 최고 책임자)
+}
+
+// 현장 관리자 전환·보고 체계 변경
+export interface ManagerInput {
+  companyCode: string | null; // 비우면 최고 책임자
+  company?: string; // 회사·사무소명
+  linkSites: boolean; // 내가 만든 현장들의 본사 연결도 같이 바꾸기
+}
+
+// 공정은 현장마다 총관리자가 직접 만든다(고정 공정 없음). key는 서버가 정하는 구분값
+export type ProcessKey = string;
+
+export interface Process {
+  key: ProcessKey;
+  name: string;
+  weight: number; // 전체 진행률 계산 시 비중(상대값: 합으로 나눠서 쓴다)
+  progress: number; // 마지막으로 보고된 누적 진행률(%)
+  lastReportedAt: string | null; // ISO 날짜
+  // 공정 계획(관리자가 설정): 시작일~완료일 동안 0% → 100%로 진행한다고 본다
+  planStart: string | null; // 'YYYY-MM-DD'
+  planEnd: string | null; // 'YYYY-MM-DD'
+}
+
+// 공정 관리 저장: key가 없으면 새 공정, 목록 순서가 화면 순서
+export interface ProcessInput {
+  key?: string;
+  name: string;
+  weight: number;
+  planStart: string | null;
+  planEnd: string | null;
+}
+
+export interface ProcessPlanInput {
+  key: ProcessKey;
+  planStart: string | null;
+  planEnd: string | null;
+}
+
+export type Weather = 'sunny' | 'cloudy' | 'rain' | 'snow';
+
+// 작업일보 항목(모두 선택 입력)
+export interface WorkLog {
+  weather: Weather | null;
+  workers: number | null; // 투입 인원(명)
+  equipment: string; // 투입 장비
+}
+
+export interface Site {
+  id: string;
+  name: string;
+  address: string;
+  ownerId: string;
+  ownerName: string;
+  code: string | null; // 6자리 참여 코드(총관리자에게만 보임)
+  memberCount: number;
+  overallProgress: number; // 공정 비중으로 계산한 전체 진행률(%)
+  processes: Process[];
+  hqName: string | null; // 연결된 본사(없으면 null)
+}
+
+// 현장 목록에 보이는 요약 정보
+export interface SiteSummary {
+  id: string;
+  name: string;
+  address: string;
+  ownerName: string;
+  memberCount: number;
+  overallProgress: number;
+  isOwner: boolean; // 이 현장의 관리자(만든 사람). 아니면 작업자로 참여
+  hqName: string | null; // 연결된 본사(없으면 본사 없이 운영)
+  todayReported: number; // 오늘 보고된 공정 수
+  processCount: number;
+  plannedProgress: number | null; // 오늘 기준 계획 진행률(계획 미설정 시 null)
+  pendingMaterials: number; // 승인·반려를 기다리는 자재 요청 수
+}
+
+export interface UpdateSiteInput {
+  name: string;
+  address: string;
+}
+
+// 현장 참여자
+export interface Member {
+  id: string;
+  name: string;
+  phone: string;
+  role: Role;
+  isOwner: boolean;
+  joinedAt: string; // ISO 날짜
+  reportCount: number; // 이 현장에서 제출한 보고 수
+}
+
+// 코드 입력 후 참여 전에 보여주는 미리보기
+export interface SitePreview {
+  id: string;
+  name: string;
+  address: string;
+  ownerName: string;
+  memberCount: number;
+  alreadyJoined: boolean;
+}
+
+export interface CreateSiteInput {
+  name: string;
+  address: string;
+}
+
+// 보고에 첨부한 문서(엑셀·PDF 등)
+export interface ReportFile {
+  name: string; // 원래 파일 이름
+  url: string; // 내려받는 주소
+  size: number; // 바이트
+}
+
+// 보고 작성 중 휴대폰에서 고른 파일
+export interface PickedFile {
+  uri: string;
+  name: string;
+  type: string | null;
+  size: number | null;
+}
+
+export interface Report {
+  id: string;
+  siteId: string;
+  siteName?: string;
+  processKey: ProcessKey;
+  processName: string;
+  from: number;
+  to: number;
+  photoUris: string[];
+  files: ReportFile[];
+  memo: string;
+  workLog: WorkLog;
+  author: string;
+  authorId: string;
+  createdAt: string; // ISO 날짜
+  updatedAt?: string; // 메모를 고친 시각
+  // 서버가 로그인한 사용자 기준으로 계산해서 내려주는 권한
+  canEdit: boolean; // 작성자 본인
+  canDelete: boolean; // (작성자 또는 현장 관리자) + 그 공정의 가장 최근 보고
+}
+
+export interface NewReport {
+  siteId: string;
+  processKey: ProcessKey;
+  to: number;
+  photoUris: string[];
+  files: PickedFile[];
+  memo: string;
+  workLog: WorkLog;
+}
+
+// ---- 자재 요청 ----
+
+// 요청 → 승인 / 반려 (현장 총관리자나 연결된 본사 관계자가 처리)
+export type MaterialStatus = 'requested' | 'approved' | 'rejected';
+
+export interface MaterialItem {
+  name: string;
+  quantity: number;
+  unit: string; // 톤, 개, 본, ㎥ …
+}
+
+// 처리 이력 한 줄
+export interface MaterialEvent {
+  status: MaterialStatus;
+  by: string; // 처리한 사람
+  byHq: boolean; // 본사에서 처리
+  at: string; // ISO 날짜
+}
+
+export interface MaterialRequest {
+  id: string;
+  siteId: string;
+  siteName: string;
+  processKey: ProcessKey | null; // 없으면 현장 공통
+  processName: string | null;
+  items: MaterialItem[];
+  neededBy: string | null; // 'YYYY-MM-DD'
+  urgent: boolean;
+  note: string;
+  status: MaterialStatus;
+  rejectReason: string | null;
+  author: string;
+  authorId: string;
+  createdAt: string; // ISO 날짜
+  timeline: MaterialEvent[]; // 처리 이력(오래된 순)
+  hqLinked: boolean; // 현장이 본사에 연결됨(본사도 승인·반려 가능)
+  // 서버가 로그인한 사용자 기준으로 계산해서 내려주는 권한
+  canCancel: boolean; // 처리 전 본인 요청
+  canApprove: boolean; // 총관리자·본사: 승인
+  canReject: boolean; // 총관리자·본사: 반려
+}
+
+// 본사 정보(본사 관계자 화면)
+export interface HqInfo {
+  name: string;
+  code: string; // 6자리 본사 코드
+  siteCount: number;
+  staff: string[]; // 본사 관계자 이름
+}
+
+export interface NewMaterialRequest {
+  siteId: string;
+  processKey: ProcessKey | null;
+  items: MaterialItem[];
+  neededBy: string | null;
+  urgent: boolean;
+  note: string;
+}
+
+// 보고 이력 나눠 불러오기(한 번에 30건씩)
+export interface ProcessCount {
+  key: ProcessKey;
+  name: string;
+  count: number;
+}
+
+export interface ReportPage {
+  items: Report[];
+  /** 다음 묶음을 부를 때 넘기는 값. 더 없으면 null */
+  nextCursor: string | null;
+  /** 첫 묶음에만: 전체 보고 수·공정별 보고 수(필터 숫자) */
+  total: number | null;
+  processes: ProcessCount[] | null;
+}
+
+/** 현장별 마지막으로 본 시각(ISO). 한 번도 안 봤으면 null */
+export type SeenInput = Record<string, string | null>;

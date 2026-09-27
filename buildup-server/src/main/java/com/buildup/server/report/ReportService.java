@@ -1,0 +1,308 @@
+package com.buildup.server.report;
+
+import com.buildup.server.common.ApiException;
+import com.buildup.server.push.Notices;
+import com.buildup.server.report.ReportDtos.ReportDto;
+import com.buildup.server.report.ReportDtos.ProcessCountDto;
+import com.buildup.server.report.ReportDtos.ReportPageDto;
+import com.buildup.server.report.ReportDtos.WorkLogDto;
+import com.buildup.server.site.Site;
+import com.buildup.server.site.SiteProcess;
+import com.buildup.server.site.SiteService;
+import com.buildup.server.user.User;
+import com.buildup.server.user.UserRepository;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Limit;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+/** 보고 제출·조회·메모 수정·삭제 (권한 규칙은 앱 src/data/dummy.ts와 같다) */
+@Service
+@RequiredArgsConstructor
+public class ReportService {
+
+    public static final int MAX_PHOTOS = 10;
+    public static final int MAX_FILES = 5;
+    private static final Set<String> WEATHERS = Set.of("sunny", "cloudy", "rain", "snow");
+
+    private final ReportRepository reports;
+    private final UserRepository users;
+    private final SiteService sites;
+    private final FileStorage files;
+    private final Notices notices;
+
+    /** 작성자는 수정 가능, (작성자 또는 현장 관리자) + 그 공정의 가장 최근 보고만 삭제 가능 */
+    private ReportDto toDto(Report r, Long userId, boolean isLatest) {
+        boolean isAuthor = r.getAuthor().getId().equals(userId);
+        boolean canDelete = isLatest && (isAuthor || r.getSite().isOwner(userId));
+        return ReportDto.of(r, isAuthor, canDelete);
+    }
+
+    private boolean isLatest(Report r) {
+        return reports.findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(r.getSite().getId(), r.getProcessKey())
+                .map(latest -> latest.getId().equals(r.getId()))
+                .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReportDto> list(Long userId, Long siteId) {
+        sites.viewableSite(userId, siteId);
+        List<Report> rows = reports.findBySiteIdOrderByCreatedAtDescIdDesc(siteId);
+        // 공정별 가장 최근 보고(목록이 최신순이라 처음 나온 것이 최근)
+        Map<String, Long> latest = new HashMap<>();
+        rows.forEach(r -> latest.putIfAbsent(r.getProcessKey(), r.getId()));
+        return rows.stream()
+                .map(r -> toDto(r, userId, r.getId().equals(latest.get(r.getProcessKey()))))
+                .toList();
+    }
+
+    /** 본사 화면: 연결된 현장들의 최근 보고(본사는 보기만 가능) */
+    @Transactional(readOnly = true)
+    public List<ReportDto> recent(Long userId, List<Long> siteIds) {
+        if (siteIds.isEmpty()) {
+            return List.of();
+        }
+        return reports.findTop100BySiteIdInOrderByCreatedAtDesc(siteIds).stream()
+                .map(r -> ReportDto.of(r, false, false))
+                .toList();
+    }
+
+    // ---- 나눠 불러오기 ----
+
+    public static final int PAGE_MAX = 50;
+    private static final Instant FAR_FUTURE = Instant.parse("9999-12-31T00:00:00Z");
+
+    /** 현장 보고 이력 한 묶음(최신순). 첫 묶음에는 공정별 보고 수도 담는다 */
+    @Transactional(readOnly = true)
+    public ReportPageDto page(Long userId, Long siteId, String processKey, String cursor, int size) {
+        Site site = sites.viewableSite(userId, siteId);
+        String key = processKey == null || processKey.isBlank() ? null : processKey;
+        int n = pageSize(size);
+        List<Report> rows = fetchPage(List.of(siteId), key, cursor, n);
+        String next = nextCursor(rows, n);
+        if (rows.size() > n) {
+            rows = rows.subList(0, n);
+        }
+        // 삭제 가능 여부: 그 공정의 가장 최근 보고인지(묶음에 들어 있는 공정만 확인)
+        Map<String, Long> latest = new HashMap<>();
+        rows.stream().map(Report::getProcessKey).distinct().forEach(k -> reports
+                .findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(siteId, k)
+                .ifPresent(r -> latest.put(k, r.getId())));
+        List<ReportDto> items = rows.stream()
+                .map(r -> toDto(r, userId, r.getId().equals(latest.get(r.getProcessKey()))))
+                .toList();
+
+        if (cursor != null && !cursor.isBlank()) {
+            return new ReportPageDto(items, next, null, null);
+        }
+        // 첫 묶음: 공정별 보고 수(공정 순서대로, 보고가 있는 공정만)
+        Map<String, Long> counts = new HashMap<>();
+        for (Object[] row : reports.countByProcess(siteId)) {
+            counts.put((String) row[0], ((Number) row[1]).longValue());
+        }
+        long total = counts.values().stream().mapToLong(Long::longValue).sum();
+        List<ProcessCountDto> processes = new ArrayList<>();
+        site.getProcesses().stream()
+                .sorted(java.util.Comparator.comparingInt(SiteProcess::getSortOrder))
+                .forEach(p -> {
+                    Long c = counts.remove(p.getKey());
+                    if (c != null) {
+                        processes.add(new ProcessCountDto(p.getKey(), p.getName(), c));
+                    }
+                });
+        // 공정 목록에 없는 키(예전 데이터)는 키 이름 그대로
+        counts.forEach((k, c) -> processes.add(new ProcessCountDto(k, k, c)));
+        return new ReportPageDto(items, next, total, processes);
+    }
+
+    /** 본사: 연결된 여러 현장의 보고 한 묶음(보기만 가능) */
+    @Transactional(readOnly = true)
+    public ReportPageDto pageForSites(List<Long> siteIds, String cursor, int size) {
+        if (siteIds.isEmpty()) {
+            return new ReportPageDto(List.of(), null, null, null);
+        }
+        int n = pageSize(size);
+        List<Report> rows = fetchPage(siteIds, null, cursor, n);
+        String next = nextCursor(rows, n);
+        if (rows.size() > n) {
+            rows = rows.subList(0, n);
+        }
+        return new ReportPageDto(rows.stream().map(r -> ReportDto.of(r, false, false)).toList(), next, null, null);
+    }
+
+    /** 현장별 확인하지 않은 보고 수(볼 수 없는 현장은 빼고 돌려준다) */
+    @Transactional(readOnly = true)
+    public Map<String, Long> unread(Long userId, Map<String, String> seen) {
+        if (seen == null || seen.isEmpty()) {
+            return Map.of();
+        }
+        if (seen.size() > 300) {
+            throw ApiException.badRequest("현장이 너무 많아요.");
+        }
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (var e : seen.entrySet()) {
+            Long siteId;
+            try {
+                siteId = Long.valueOf(e.getKey());
+                sites.viewableSite(userId, siteId);
+            } catch (NumberFormatException | ApiException ex) {
+                continue;
+            }
+            Instant since = parseInstant(e.getValue());
+            out.put(e.getKey(), since == null
+                    ? reports.countBySiteId(siteId)
+                    : reports.countBySiteIdAndCreatedAtAfter(siteId, since));
+        }
+        return out;
+    }
+
+    private static int pageSize(int size) {
+        return Math.max(1, Math.min(size, PAGE_MAX));
+    }
+
+    /** 커서 모양: 보고시각(ISO) + "_" + 보고ID */
+    private List<Report> fetchPage(List<Long> siteIds, String key, String cursor, int n) {
+        Instant at = FAR_FUTURE;
+        long id = Long.MAX_VALUE;
+        if (cursor != null && !cursor.isBlank()) {
+            int cut = cursor.lastIndexOf('_');
+            try {
+                at = Instant.parse(cursor.substring(0, cut));
+                id = Long.parseLong(cursor.substring(cut + 1));
+            } catch (RuntimeException e) {
+                throw ApiException.badRequest("목록 위치 값이 올바르지 않습니다.");
+            }
+        }
+        // 하나 더 불러와서 다음 묶음이 있는지 안다
+        return reports.page(siteIds, key, at, id, Limit.of(n + 1));
+    }
+
+    private static String nextCursor(List<Report> rows, int n) {
+        if (rows.size() <= n) {
+            return null;
+        }
+        Report last = rows.get(n - 1);
+        return last.getCreatedAt() + "_" + last.getId();
+    }
+
+    private static Instant parseInstant(String iso) {
+        if (iso == null || iso.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(iso);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    @Transactional
+    public ReportDto create(
+            Long userId,
+            Long siteId,
+            String processKey,
+            double to,
+            String memo,
+            WorkLogDto workLog,
+            List<MultipartFile> photos,
+            List<MultipartFile> documents) {
+        Site site = sites.memberSite(userId, siteId);
+        SiteProcess process = site.getProcesses().stream()
+                .filter(p -> p.getKey().equals(processKey))
+                .findFirst()
+                .orElseThrow(() -> ApiException.badRequest("존재하지 않는 공정입니다."));
+        if (!Double.isFinite(to) || to < process.getProgress() || to > 100) {
+            throw ApiException.badRequest("진행률은 마지막 보고 값(" + process.getProgress() + "%) 이상, 100% 이하여야 해요.");
+        }
+        List<MultipartFile> uploads = photos == null
+                ? List.of()
+                : photos.stream().filter(f -> !f.isEmpty()).toList();
+        if (uploads.size() > MAX_PHOTOS) {
+            throw ApiException.badRequest("사진은 최대 " + MAX_PHOTOS + "장까지 올릴 수 있어요.");
+        }
+        List<MultipartFile> docs = documents == null
+                ? List.of()
+                : documents.stream().filter(f -> !f.isEmpty()).toList();
+        if (docs.size() > MAX_FILES) {
+            throw ApiException.badRequest("파일은 최대 " + MAX_FILES + "개까지 첨부할 수 있어요.");
+        }
+        // 형식이 틀린 파일이 있으면 아무것도 저장하기 전에 거절(사진만 남는 일 방지)
+        docs.forEach(FileStorage::checkDocument);
+        WorkLogDto log = workLog == null ? WorkLogDto.EMPTY : workLog;
+        if (log.weather() != null && !WEATHERS.contains(log.weather())) {
+            throw ApiException.badRequest("날씨 값이 올바르지 않습니다.");
+        }
+
+        User author = users.getReferenceById(userId);
+        Instant now = Instant.now();
+        Report r = new Report();
+        r.setSite(site);
+        r.setProcessKey(process.getKey());
+        r.setProcessName(process.getName());
+        r.setFromProgress(process.getProgress());
+        r.setToProgress(Math.round(to * 10) / 10.0);
+        r.setMemo(memo == null ? "" : memo.trim());
+        r.setWeather(log.weather());
+        r.setWorkers(log.workers() != null && log.workers() > 0 ? log.workers() : null);
+        r.setEquipment(log.equipment() == null ? "" : log.equipment().trim());
+        r.setAuthor(author);
+        r.setCreatedAt(now);
+        r.setPhotos(new ArrayList<>(uploads.stream().map(files::save).toList()));
+        r.setFiles(new ArrayList<>(docs.stream().map(files::saveDocument).toList()));
+        reports.save(r);
+        notices.reportCreated(r);
+
+        process.setProgress(r.getToProgress());
+        process.setLastReportedAt(now);
+        return toDto(r, userId, true);
+    }
+
+    @Transactional
+    public ReportDto updateMemo(Long userId, Long reportId, String memo) {
+        Report r = find(userId, reportId);
+        if (!r.getAuthor().getId().equals(userId)) {
+            throw ApiException.forbidden("작성자만 수정할 수 있습니다.");
+        }
+        r.setMemo(memo == null ? "" : memo.trim());
+        r.setUpdatedAt(Instant.now());
+        return toDto(r, userId, isLatest(r));
+    }
+
+    /** 가장 최근 보고만 삭제 가능 → 공정 진행률을 보고 전 값으로 되돌린다 */
+    @Transactional
+    public void delete(Long userId, Long reportId) {
+        Report r = find(userId, reportId);
+        if (!toDto(r, userId, isLatest(r)).canDelete()) {
+            throw ApiException.forbidden("각 공정의 가장 최근 보고만, 작성자나 현장 관리자가 삭제할 수 있습니다.");
+        }
+        Site site = r.getSite();
+        String key = r.getProcessKey();
+        double from = r.getFromProgress();
+        files.deleteAfterCommit(r.getPhotos(), r.getFiles());
+        reports.delete(r);
+        reports.flush();
+
+        SiteProcess process = site.getProcesses().stream()
+                .filter(p -> p.getKey().equals(key))
+                .findFirst()
+                .orElseThrow();
+        process.setProgress(from);
+        process.setLastReportedAt(reports.findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(site.getId(), key)
+                .map(Report::getCreatedAt)
+                .orElse(null));
+    }
+
+    private Report find(Long userId, Long reportId) {
+        Report r = reports.findById(reportId).orElseThrow(() -> ApiException.notFound("보고를 찾을 수 없습니다."));
+        sites.memberSite(userId, r.getSite().getId());
+        return r;
+    }
+}

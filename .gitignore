@@ -1,0 +1,36 @@
+# ---- 깃허브에 올리지 않는 것 ----
+
+# 내 컴퓨터 DB 데이터·비밀번호
+/db/
+
+# 작업용 화면 캡처·임시 스크립트
+/screenshots/
+
+# 설치 파일(용량이 커서 깃허브 Releases에 따로 올린다)
+*.apk
+*.aab
+
+# 비밀 파일
+**/application-local.properties
+**/firebase-key.json
+**/credentials*.txt
+**/google-services.json
+.env
+*.env
+!*.env.example
+
+# 서버에 올라온 사진·첨부 파일(현장 자료)
+**/uploads/
+
+# 빌드 결과·라이브러리(다시 만들 수 있음)
+**/node_modules/
+**/build/
+**/.gradle/
+**/.cxx/
+**/.kotlin/
+
+# 편집기
+.vscode/
+.idea/
+*.iml
+.DS_Store

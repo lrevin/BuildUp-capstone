@@ -1,0 +1,52 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.buildup'
+version = '0.0.1-SNAPSHOT'
+description = 'BuildUp backend'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	compileOnly 'org.projectlombok:lombok'
+	// 작업일보 엑셀(.xlsx) 내보내기
+	implementation 'org.apache.poi:poi-ooxml:5.4.1'
+	// 휴대폰 알림(Firebase Cloud Messaging)
+	implementation 'com.google.firebase:firebase-admin:9.9.0'
+	runtimeOnly 'com.mysql:mysql-connector-j'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+// 배포용 실행 파일 이름: build/libs/buildup-server.jar
+tasks.named('bootJar') {
+	archiveFileName = 'buildup-server.jar'
+}
+tasks.named('jar') {
+	enabled = false
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}

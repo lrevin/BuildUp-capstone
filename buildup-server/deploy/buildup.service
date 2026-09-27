@@ -1,0 +1,22 @@
+# 리눅스 서버에서 자동 실행(재부팅해도 켜짐) 설정 예시
+# /etc/systemd/system/buildup.service 로 복사 후:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now buildup
+#   상태 보기: sudo systemctl status buildup / 로그: journalctl -u buildup -f
+
+[Unit]
+Description=Build Up server
+After=network.target mysql.service
+
+[Service]
+User=buildup
+WorkingDirectory=/opt/buildup
+# DB 주소·비밀번호 등은 이 파일에(권한 600, 다른 사람이 못 읽게)
+EnvironmentFile=/opt/buildup/buildup.env
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /opt/buildup/buildup-server.jar --spring.profiles.active=prod
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
