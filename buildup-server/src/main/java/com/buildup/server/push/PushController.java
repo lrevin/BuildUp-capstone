@@ -5,6 +5,8 @@ import com.buildup.server.common.ApiException;
 import com.buildup.server.user.UserRepository;
 import java.time.Instant;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** 앱이 로그인하면 이 휴대폰의 알림 주소를 등록하고, 로그아웃하면 지운다 */
 @RestController
+@Tag(name = "07 휴대폰 알림", description = "알림 받을 휴대폰 등록·삭제")
 @RequiredArgsConstructor
 public class PushController {
 
@@ -25,6 +28,7 @@ public class PushController {
 
     public record TokenRequest(String token) {}
 
+    @Operation(summary = "이 휴대폰을 알림 받을 곳으로 등록")
     @PostMapping("/api/push/token")
     @Transactional
     public Map<String, Boolean> register(@RequestBody TokenRequest req) {
@@ -43,6 +47,7 @@ public class PushController {
         return Map.of("ok", true);
     }
 
+    @Operation(summary = "이 휴대폰 알림 등록 지우기(로그아웃 때)")
     @DeleteMapping("/api/push/token")
     @Transactional
     public Map<String, Boolean> unregister(@RequestBody TokenRequest req) {

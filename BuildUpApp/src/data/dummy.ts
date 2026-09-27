@@ -62,12 +62,17 @@ interface SiteRow {
   ownerId: string;
   code: string;
   companyId: string | null; // 연결된 본사
+  latitude?: number | null; // 현장 위치
+  longitude?: number | null;
   memberIds: string[];
   joinedAt: Record<string, string>; // 사용자 id → 참여 시각
   processes: Process[];
 }
 
-type ReportRow = Omit<Report, 'canEdit' | 'canDelete' | 'siteName'>;
+type ReportRow = Omit<
+  Report,
+  'canEdit' | 'canDelete' | 'canReview' | 'siteName' | 'checks'
+>;
 type MaterialRow = Omit<
   MaterialRequest,
   | 'siteName'
@@ -145,7 +150,12 @@ const WEATHERS: Weather[] = [
   'sunny',
 ];
 
-function makeHistory(siteId: string, spec: HistorySpec, seq: { n: number }) {
+function makeHistory(
+  siteId: string,
+  spec: HistorySpec,
+  seq: { n: number },
+  ownerId: string,
+) {
   const rows: ReportRow[] = [];
   let to = spec.final;
   for (let i = 0; i < spec.count; i++) {
@@ -171,6 +181,12 @@ function makeHistory(siteId: string, spec: HistorySpec, seq: { n: number }) {
       author,
       authorId,
       createdAt: hourAt(spec.lastDaysAgo + i * spec.every, 16 + (i % 2)),
+      review: {
+        status: i === 0 && authorId !== ownerId ? 'pending' : 'approved',
+        comment: null,
+        reviewer: null,
+        reviewedAt: null,
+      },
     });
     to = from;
   }
@@ -382,9 +398,9 @@ function makeSeed(): DummyState {
 
   const seq = { n: 1 };
   const reports = [
-    ...hanbitSpecs.flatMap(s => makeHistory('site-1', s, seq)),
-    ...sejongSpecs.flatMap(s => makeHistory('site-2', s, seq)),
-    ...wonjuSpecs.flatMap(s => makeHistory('site-3', s, seq)),
+    ...hanbitSpecs.flatMap(s => makeHistory('site-1', s, seq, 'u-admin')),
+    ...sejongSpecs.flatMap(s => makeHistory('site-2', s, seq, 'u-admin')),
+    ...wonjuSpecs.flatMap(s => makeHistory('site-3', s, seq, 'u-w2')),
   ];
 
   return { users, companies, sites, reports, materials: seedMaterials() };
@@ -593,11 +609,27 @@ function withPermissions(userId: string, row: ReportRow): Report {
   const site = sites.find(s => s.id === row.siteId);
   const isAuthor = row.authorId === userId;
   const isLatest = latestOf(row.siteId, row.processKey)?.id === row.id;
+  const review = row.review ?? {
+    status: 'approved' as const,
+    comment: null,
+    reviewer: null,
+    reviewedAt: null,
+  };
+  // 검토: 연결된 본사 또는 현장 총관리자, 본인 보고는 안 됨(서버 ReportService.canReview와 같음)
+  const viewer = users.find(u => u.id === userId);
+  const canReview =
+    !!site &&
+    review.status === 'pending' &&
+    !isAuthor &&
+    (site.ownerId === userId || isHqOf(viewer, site));
   return {
     ...clone(row),
+    review: clone(review),
     siteName: siteName(row.siteId),
+    checks: [],
     canEdit: isAuthor,
     canDelete: isLatest && (isAuthor || site?.ownerId === userId),
+    canReview,
   };
 }
 
@@ -617,6 +649,13 @@ function summary(s: SiteRow, userId: string): SiteSummary {
     // 승인·반려를 기다리는 요청
     pendingMaterials: materials.filter(
       m => m.siteId === s.id && m.status === 'requested',
+    ).length,
+    pendingReviews: reports.filter(
+      r =>
+        r.siteId === s.id &&
+        r.review?.status === 'pending' &&
+        (isHqOf(users.find(u => u.id === userId), s) ||
+          (s.ownerId === userId && r.authorId !== userId)),
     ).length,
   };
 }
@@ -775,7 +814,21 @@ export const dummyDb = {
       overallProgress: overall(s.processes),
       processes: s.processes,
       hqName: companies.find(c => c.id === s.companyId)?.name ?? null,
+      latitude: s.latitude ?? null,
+      longitude: s.longitude ?? null,
     });
+  },
+
+  // 총관리자: 현장 위치 저장(null이면 지우기)
+  setSiteLocation(
+    userId: string,
+    siteId: string,
+    point: { latitude: number; longitude: number } | null,
+  ): Site {
+    const s = findOwnedSite(userId, siteId, '현장 위치를 저장');
+    s.latitude = point?.latitude ?? null;
+    s.longitude = point?.longitude ?? null;
+    return dummyDb.getSite(userId, siteId);
   },
 
   createSite(userId: string, input: CreateSiteInput): Site {
@@ -1081,6 +1134,20 @@ export const dummyDb = {
       author: u.name,
       authorId: u.id,
       createdAt: now,
+      photos: input.photoUris.map((url, i) => ({
+        url,
+        takenAt: input.photoTakenAt?.[i] ?? null,
+        latitude: null,
+        longitude: null,
+      })),
+      location: input.location ?? null,
+      // 본사 없는 현장의 총관리자(최고 책임자) 보고는 바로 승인
+      review: {
+        status: s.ownerId === u.id && !s.companyId ? 'approved' : 'pending',
+        comment: null,
+        reviewer: null,
+        reviewedAt: null,
+      },
     };
     reports.push(row);
     process.progress = input.to;
@@ -1100,6 +1167,46 @@ export const dummyDb = {
     }
     row.memo = memo.trim();
     row.updatedAt = new Date().toISOString();
+    if (row.review?.status === 'revision') {
+      row.review = { ...row.review, status: 'pending' };
+    }
+    return withPermissions(userId, row);
+  },
+
+  // 본사·현장 총관리자: 승인 / 보완 요청(코멘트 필수)
+  reviewReport(
+    userId: string,
+    reportId: string,
+    status: 'approved' | 'revision',
+    comment: string,
+  ): Report {
+    const row = reports.find(r => r.id === reportId);
+    if (!row) {
+      throw new ApiError('보고를 찾을 수 없습니다.');
+    }
+    findViewableSite(userId, row.siteId);
+    const text = comment.trim();
+    if (status === 'revision' && !text) {
+      throw new ApiError('무엇을 보완해야 하는지 코멘트를 적어 주세요.');
+    }
+    if (text.length > 500) {
+      throw new ApiError('코멘트는 500자까지 쓸 수 있어요.');
+    }
+    if (!withPermissions(userId, row).canReview) {
+      throw new ApiError(
+        row.authorId === userId
+          ? '본인이 올린 보고는 검토할 수 없어요.'
+          : row.review?.status !== 'pending'
+          ? '이미 검토한 보고예요. 목록을 새로고침해 주세요.'
+          : '현장 총관리자나 본사 관계자만 검토할 수 있어요.',
+      );
+    }
+    row.review = {
+      status,
+      comment: text || null,
+      reviewer: findUser(userId).name,
+      reviewedAt: new Date().toISOString(),
+    };
     return withPermissions(userId, row);
   },
 

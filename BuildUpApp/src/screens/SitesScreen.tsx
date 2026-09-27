@@ -19,6 +19,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import {
   Building2,
   ChevronRight,
+  ClipboardCheck,
   KeyRound,
   Package,
   UserRound,
@@ -36,7 +37,7 @@ import { colors, radius, shadow } from '../theme';
 import { SiteSummary } from '../types';
 import { pct } from '../utils/format';
 import { STATUS_META, scheduleStatus, statusText } from '../utils/plan';
-import { SiteTile } from './HqHomeScreen';
+import { BLUE, SiteTile } from './HqHomeScreen';
 
 export default function SitesScreen({ navigation }: ScreenProps<'Sites'>) {
   const insets = useSafeAreaInsets();
@@ -324,12 +325,23 @@ export function SiteCard({
             </Text>
           </View>
         ) : null}
+        {/* 관리자: 검토(승인·보완 요청)할 보고 */}
+        {site.pendingReviews ? (
+          <View style={[styles.material, styles.reviewChip]}>
+            <ClipboardCheck size={12} color={BLUE} strokeWidth={2.4} />
+            <Text style={[styles.materialText, styles.reviewText]}>
+              검토 {site.pendingReviews}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  reviewChip: { backgroundColor: '#EAF0FF', marginLeft: 6 },
+  reviewText: { color: BLUE },
   root: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   topBar: { backgroundColor: colors.background },

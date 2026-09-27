@@ -3,7 +3,8 @@
 // 계정 종류: 현장 관리자 / 일반 작업자 / 본사 관계자
 // (현장 안에서의 권한은 현장마다 정해진다: 현장을 만든 사람 = 관리자, 코드로 참여 = 작업자.
 //  그래서 현장 관리자도 다른 현장에서는 작업자일 수 있다)
-export type Role = 'admin' | 'worker' | 'hq';
+// system: 시스템 관리자(웹 대시보드 전용, 가입으로는 만들 수 없음)
+export type Role = 'admin' | 'worker' | 'hq' | 'system';
 
 export interface User {
   id: string;
@@ -82,6 +83,8 @@ export interface Site {
   overallProgress: number; // 공정 비중으로 계산한 전체 진행률(%)
   processes: Process[];
   hqName: string | null; // 연결된 본사(없으면 null)
+  latitude?: number | null; // 현장 위치(보고 위치 확인 기준)
+  longitude?: number | null;
 }
 
 // 현장 목록에 보이는 요약 정보
@@ -98,6 +101,7 @@ export interface SiteSummary {
   processCount: number;
   plannedProgress: number | null; // 오늘 기준 계획 진행률(계획 미설정 시 null)
   pendingMaterials: number; // 승인·반려를 기다리는 자재 요청 수
+  pendingReviews?: number; // 내가 검토할 수 있는 대기 보고 수
 }
 
 export interface UpdateSiteInput {
@@ -162,9 +166,47 @@ export interface Report {
   authorId: string;
   createdAt: string; // ISO 날짜
   updatedAt?: string; // 메모를 고친 시각
+  /** 사진별 촬영 정보(촬영 시각·위치). 없을 수 있다 */
+  photos?: PhotoInfo[];
+  /** 보고를 제출한 위치(휴대폰 GPS) */
+  location?: GeoPoint | null;
+  /** 검토(승인·보완 요청) */
+  review?: Review;
+  /** 촬영 시각·위치로 찾은 의심스러운 점(오래된 사진, 현장 밖 제출 등) */
+  checks?: ReportCheck[];
   // 서버가 로그인한 사용자 기준으로 계산해서 내려주는 권한
   canEdit: boolean; // 작성자 본인
   canDelete: boolean; // (작성자 또는 현장 관리자) + 그 공정의 가장 최근 보고
+  canReview?: boolean; // 연결된 본사 또는 현장 총관리자 + 검토 대기 + 본인 보고 아님
+}
+
+// ---- 보고 검토 ----
+// 대기 → 승인 / 보완 요청(작성자가 메모를 고치면 다시 대기)
+export type ReviewStatus = 'pending' | 'approved' | 'revision';
+
+export interface Review {
+  status: ReviewStatus;
+  comment: string | null;
+  reviewer: string | null;
+  reviewedAt: string | null;
+}
+
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+  accuracy?: number | null;
+}
+
+export interface PhotoInfo {
+  url: string;
+  takenAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface ReportCheck {
+  type: 'old_photo' | 'far_submit' | 'far_photo' | 'no_location';
+  message: string;
 }
 
 export interface NewReport {
@@ -172,6 +214,10 @@ export interface NewReport {
   processKey: ProcessKey;
   to: number;
   photoUris: string[];
+  /** 사진마다 촬영 시각(ISO). 모르면 null */
+  photoTakenAt?: (string | null)[];
+  /** 제출 위치(위치 권한을 안 주면 null) */
+  location?: GeoPoint | null;
   files: PickedFile[];
   memo: string;
   workLog: WorkLog;

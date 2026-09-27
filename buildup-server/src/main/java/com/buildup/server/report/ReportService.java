@@ -40,10 +40,26 @@ public class ReportService {
     private final Notices notices;
 
     /** 작성자는 수정 가능, (작성자 또는 현장 관리자) + 그 공정의 가장 최근 보고만 삭제 가능 */
-    private ReportDto toDto(Report r, Long userId, boolean isLatest) {
-        boolean isAuthor = r.getAuthor().getId().equals(userId);
-        boolean canDelete = isLatest && (isAuthor || r.getSite().isOwner(userId));
-        return ReportDto.of(r, isAuthor, canDelete);
+    private ReportDto toDto(Report r, User viewer, boolean isLatest) {
+        boolean isAuthor = r.getAuthor().getId().equals(viewer.getId());
+        boolean canDelete = isLatest && (isAuthor || r.getSite().isOwner(viewer.getId()));
+        return ReportDto.of(r, isAuthor, canDelete, canReview(r, viewer));
+    }
+
+    /**
+     * 검토(승인·보완 요청)할 수 있는 사람: 연결된 본사 관계자 또는 현장 총관리자. 본인이 쓴 보고는 못 한다.
+     * (총관리자 본인 보고 → 본사 연결 현장이면 본사가 검토, 본사 없는 현장이면 제출할 때 바로 승인)
+     */
+    private static boolean canReview(Report r, User viewer) {
+        if (!Report.PENDING.equals(r.status()) || r.getAuthor().getId().equals(viewer.getId())) {
+            return false;
+        }
+        Site site = r.getSite();
+        return site.isOwner(viewer.getId()) || site.isHqOf(viewer);
+    }
+
+    private User viewer(Long userId) {
+        return users.findById(userId).orElseThrow(() -> ApiException.unauthorized("로그인이 필요합니다."));
     }
 
     private boolean isLatest(Report r) {
@@ -55,23 +71,25 @@ public class ReportService {
     @Transactional(readOnly = true)
     public List<ReportDto> list(Long userId, Long siteId) {
         sites.viewableSite(userId, siteId);
+        User viewer = viewer(userId);
         List<Report> rows = reports.findBySiteIdOrderByCreatedAtDescIdDesc(siteId);
         // 공정별 가장 최근 보고(목록이 최신순이라 처음 나온 것이 최근)
         Map<String, Long> latest = new HashMap<>();
         rows.forEach(r -> latest.putIfAbsent(r.getProcessKey(), r.getId()));
         return rows.stream()
-                .map(r -> toDto(r, userId, r.getId().equals(latest.get(r.getProcessKey()))))
+                .map(r -> toDto(r, viewer, r.getId().equals(latest.get(r.getProcessKey()))))
                 .toList();
     }
 
-    /** 본사 화면: 연결된 현장들의 최근 보고(본사는 보기만 가능) */
+    /** 본사 화면: 연결된 현장들의 최근 보고(본사는 검토만 가능) */
     @Transactional(readOnly = true)
     public List<ReportDto> recent(Long userId, List<Long> siteIds) {
         if (siteIds.isEmpty()) {
             return List.of();
         }
+        User viewer = viewer(userId);
         return reports.findTop100BySiteIdInOrderByCreatedAtDesc(siteIds).stream()
-                .map(r -> ReportDto.of(r, false, false))
+                .map(r -> ReportDto.of(r, false, false, canReview(r, viewer)))
                 .toList();
     }
 
@@ -84,6 +102,7 @@ public class ReportService {
     @Transactional(readOnly = true)
     public ReportPageDto page(Long userId, Long siteId, String processKey, String cursor, int size) {
         Site site = sites.viewableSite(userId, siteId);
+        User viewer = viewer(userId);
         String key = processKey == null || processKey.isBlank() ? null : processKey;
         int n = pageSize(size);
         List<Report> rows = fetchPage(List.of(siteId), key, cursor, n);
@@ -97,7 +116,7 @@ public class ReportService {
                 .findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(siteId, k)
                 .ifPresent(r -> latest.put(k, r.getId())));
         List<ReportDto> items = rows.stream()
-                .map(r -> toDto(r, userId, r.getId().equals(latest.get(r.getProcessKey()))))
+                .map(r -> toDto(r, viewer, r.getId().equals(latest.get(r.getProcessKey()))))
                 .toList();
 
         if (cursor != null && !cursor.isBlank()) {
@@ -123,9 +142,9 @@ public class ReportService {
         return new ReportPageDto(items, next, total, processes);
     }
 
-    /** 본사: 연결된 여러 현장의 보고 한 묶음(보기만 가능) */
+    /** 본사: 연결된 여러 현장의 보고 한 묶음(본사는 검토만 가능) */
     @Transactional(readOnly = true)
-    public ReportPageDto pageForSites(List<Long> siteIds, String cursor, int size) {
+    public ReportPageDto pageForSites(Long userId, List<Long> siteIds, String cursor, int size) {
         if (siteIds.isEmpty()) {
             return new ReportPageDto(List.of(), null, null, null);
         }
@@ -135,7 +154,9 @@ public class ReportService {
         if (rows.size() > n) {
             rows = rows.subList(0, n);
         }
-        return new ReportPageDto(rows.stream().map(r -> ReportDto.of(r, false, false)).toList(), next, null, null);
+        User viewer = viewer(userId);
+        return new ReportPageDto(
+                rows.stream().map(r -> ReportDto.of(r, false, false, canReview(r, viewer))).toList(), next, null, null);
     }
 
     /** 현장별 확인하지 않은 보고 수(볼 수 없는 현장은 빼고 돌려준다) */
@@ -213,7 +234,9 @@ public class ReportService {
             String memo,
             WorkLogDto workLog,
             List<MultipartFile> photos,
-            List<MultipartFile> documents) {
+            List<MultipartFile> documents,
+            SubmitPlace place,
+            List<String> photoTakenAt) {
         Site site = sites.memberSite(userId, siteId);
         SiteProcess process = site.getProcesses().stream()
                 .filter(p -> p.getKey().equals(processKey))
@@ -236,12 +259,13 @@ public class ReportService {
         }
         // 형식이 틀린 파일이 있으면 아무것도 저장하기 전에 거절(사진만 남는 일 방지)
         docs.forEach(FileStorage::checkDocument);
+        SubmitPlace at = place == null ? SubmitPlace.NONE : place.checked();
         WorkLogDto log = workLog == null ? WorkLogDto.EMPTY : workLog;
         if (log.weather() != null && !WEATHERS.contains(log.weather())) {
             throw ApiException.badRequest("날씨 값이 올바르지 않습니다.");
         }
 
-        User author = users.getReferenceById(userId);
+        User author = viewer(userId);
         Instant now = Instant.now();
         Report r = new Report();
         r.setSite(site);
@@ -255,14 +279,29 @@ public class ReportService {
         r.setEquipment(log.equipment() == null ? "" : log.equipment().trim());
         r.setAuthor(author);
         r.setCreatedAt(now);
-        r.setPhotos(new ArrayList<>(uploads.stream().map(files::save).toList()));
+        r.setLatitude(at.latitude());
+        r.setLongitude(at.longitude());
+        r.setAccuracy(at.accuracy());
+        // 본사 없는 현장의 총관리자(최고 책임자)가 올린 보고는 검토할 사람이 없으므로 바로 승인
+        r.setReviewStatus(site.isOwner(userId) && site.getCompany() == null ? Report.APPROVED : Report.PENDING);
+        // 사진 촬영 정보: 사진 파일의 EXIF가 있으면 그것을, 없으면 앱이 알려 준 촬영 시각
+        List<ReportPhoto> saved = new ArrayList<>();
+        for (int i = 0; i < uploads.size(); i++) {
+            MultipartFile f = uploads.get(i);
+            PhotoMeta.Info meta = PhotoMeta.read(f);
+            java.time.Instant taken = meta.takenAt() != null
+                    ? meta.takenAt()
+                    : PhotoMeta.parse(photoTakenAt != null && i < photoTakenAt.size() ? photoTakenAt.get(i) : null);
+            saved.add(new ReportPhoto(files.save(f), taken, meta.latitude(), meta.longitude()));
+        }
+        r.setPhotos(saved);
         r.setFiles(new ArrayList<>(docs.stream().map(files::saveDocument).toList()));
         reports.save(r);
         notices.reportCreated(r);
 
         process.setProgress(r.getToProgress());
         process.setLastReportedAt(now);
-        return toDto(r, userId, true);
+        return toDto(r, author, true);
     }
 
     @Transactional
@@ -273,20 +312,59 @@ public class ReportService {
         }
         r.setMemo(memo == null ? "" : memo.trim());
         r.setUpdatedAt(Instant.now());
-        return toDto(r, userId, isLatest(r));
+        if (Report.REVISION.equals(r.status())) {
+            // 보완해서 다시 올림 → 검토 대기로 돌리고 검토한 사람에게 알림
+            r.setReviewStatus(Report.PENDING);
+            notices.reportResubmitted(r);
+        }
+        return toDto(r, r.getAuthor(), isLatest(r));
+    }
+
+    /** 본사 관계자·현장 총관리자: 승인 / 보완 요청(코멘트 필수) */
+    @Transactional
+    public ReportDto review(Long userId, Long reportId, String status, String comment) {
+        Report r = reports.findById(reportId).orElseThrow(() -> ApiException.notFound("보고를 찾을 수 없습니다."));
+        sites.viewableSite(userId, r.getSite().getId());
+        User viewer = viewer(userId);
+        String next = status == null ? "" : status;
+        if (!Report.APPROVED.equals(next) && !Report.REVISION.equals(next)) {
+            throw ApiException.badRequest("검토 값이 올바르지 않습니다.");
+        }
+        String text = comment == null ? "" : comment.trim();
+        if (Report.REVISION.equals(next) && text.isEmpty()) {
+            throw ApiException.badRequest("무엇을 보완해야 하는지 코멘트를 적어 주세요.");
+        }
+        if (text.length() > 500) {
+            throw ApiException.badRequest("코멘트는 500자까지 쓸 수 있어요.");
+        }
+        if (!canReview(r, viewer)) {
+            if (r.getAuthor().getId().equals(userId)) {
+                throw ApiException.forbidden("본인이 올린 보고는 검토할 수 없어요.");
+            }
+            if (!Report.PENDING.equals(r.status())) {
+                throw ApiException.conflict("이미 검토한 보고예요. 목록을 새로고침해 주세요.");
+            }
+            throw ApiException.forbidden("현장 총관리자나 본사 관계자만 검토할 수 있어요.");
+        }
+        r.setReviewStatus(next);
+        r.setReviewComment(text.isEmpty() ? null : text);
+        r.setReviewer(viewer);
+        r.setReviewedAt(Instant.now());
+        notices.reportReviewed(r);
+        return toDto(r, viewer, isLatest(r));
     }
 
     /** 가장 최근 보고만 삭제 가능 → 공정 진행률을 보고 전 값으로 되돌린다 */
     @Transactional
     public void delete(Long userId, Long reportId) {
         Report r = find(userId, reportId);
-        if (!toDto(r, userId, isLatest(r)).canDelete()) {
+        if (!toDto(r, viewer(userId), isLatest(r)).canDelete()) {
             throw ApiException.forbidden("각 공정의 가장 최근 보고만, 작성자나 현장 관리자가 삭제할 수 있습니다.");
         }
         Site site = r.getSite();
         String key = r.getProcessKey();
         double from = r.getFromProgress();
-        files.deleteAfterCommit(r.getPhotos(), r.getFiles());
+        files.deleteAfterCommit(r.photoFiles(), r.getFiles());
         reports.delete(r);
         reports.flush();
 
@@ -298,6 +376,23 @@ public class ReportService {
         process.setLastReportedAt(reports.findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(site.getId(), key)
                 .map(Report::getCreatedAt)
                 .orElse(null));
+    }
+
+    /** 보고를 제출한 위치(휴대폰 GPS). 없으면 NONE */
+    public record SubmitPlace(Double latitude, Double longitude, Double accuracy) {
+        public static final SubmitPlace NONE = new SubmitPlace(null, null, null);
+
+        SubmitPlace checked() {
+            if (latitude == null || longitude == null) {
+                return NONE;
+            }
+            if (!Double.isFinite(latitude) || !Double.isFinite(longitude)
+                    || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+                throw ApiException.badRequest("위치 값이 올바르지 않습니다.");
+            }
+            Double acc = accuracy == null || !Double.isFinite(accuracy) || accuracy < 0 ? null : accuracy;
+            return new SubmitPlace(latitude, longitude, acc);
+        }
     }
 
     private Report find(Long userId, Long reportId) {

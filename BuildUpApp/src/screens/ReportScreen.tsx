@@ -44,10 +44,12 @@ import {
   X,
 } from 'lucide-react-native';
 import { fetchMaterials, fetchSite, submitReport } from '../api/buildup';
+import { currentPlace } from '../location';
 import { errorMessage } from '../api/client';
 import { useAuth, useUser } from '../auth';
 import { useDialog } from '../components/Dialog';
 import MenuSheet from '../components/MenuSheet';
+import ProgressRing from '../components/ProgressRing';
 import {
   EMPTY_WORKLOG,
   WorkLogFields,
@@ -356,6 +358,7 @@ export default function ReportScreen({
       quality: 0.7 as const,
       maxWidth: 1600,
       maxHeight: 1600,
+      includeExtra: true, // 원본 사진의 촬영 시각(timestamp)을 함께 받는다
     };
     const pick = await dialog.choose({
       title: '현장 사진 추가',
@@ -376,7 +379,16 @@ export default function ReportScreen({
       ],
     });
     if (pick === 'camera') {
-      launchCamera({ ...options, saveToPhotos: false }).then(addPhotos);
+      // 카메라로 찍은 사진은 지금이 촬영 시각
+      launchCamera({ ...options, saveToPhotos: false }).then(res =>
+        addPhotos({
+          ...res,
+          assets: res.assets?.map(a => ({
+            ...a,
+            timestamp: a.timestamp ?? new Date().toISOString(),
+          })),
+        }),
+      );
     } else if (pick === 'library') {
       launchImageLibrary({ ...options, selectionLimit: remaining }).then(
         addPhotos,
@@ -477,11 +489,15 @@ export default function ReportScreen({
     const submittedMemo = !!memo.trim();
     const submittedLog = workLogSummary(workLog);
     try {
+      // 제출 위치(휴대폰 GPS). 위치 권한을 안 주면 위치 없이 제출
+      const place = await currentPlace();
       await submitReport({
         siteId: site.id,
         processKey: process.key,
         to: today,
         photoUris: photos.map(p => p.uri!),
+        photoTakenAt: photos.map(p => p.timestamp ?? null),
+        location: place,
         files,
         memo: memo.trim(),
         workLog: { ...workLog, equipment: workLog.equipment.trim() },
@@ -615,68 +631,54 @@ export default function ReportScreen({
 
           {/* 전체 진행률 */}
           <Card style={styles.hero}>
-            <View style={styles.overallRow}>
-              <Text style={styles.label}>
-                전체 진행률 ·{' '}
+            <View style={styles.ringRow}>
+              <ProgressRing
+                value={site.overallProgress}
+                planned={overallPlanned}
+              />
+              <View style={styles.ringSide}>
+                <Text style={styles.label}>전체 진행률</Text>
                 <Text style={styles.todayCount}>
                   오늘 보고 {reportedToday}/{site.processes.length}
                 </Text>
-              </Text>
-              <Text style={styles.overallValue}>
-                {site.overallProgress.toFixed(1)}
-                <Text style={styles.overallUnit}>%</Text>
-              </Text>
-            </View>
-            <View style={styles.thinTrackWrap}>
-              <View style={styles.thinTrack}>
-                <View
-                  style={[
-                    styles.thinFill,
-                    { width: `${site.overallProgress}%` },
-                  ]}
-                />
-              </View>
-              {overallPlanned !== null ? (
-                <View
-                  style={[styles.planTick, { left: `${overallPlanned}%` }]}
-                />
-              ) : null}
-            </View>
-
-            <Pressable style={styles.planRow} onPress={goProgress} hitSlop={6}>
-              {overallStatus ? (
-                <>
-                  <View
-                    style={[
-                      styles.statusChip,
-                      { backgroundColor: STATUS_META[overallStatus.status].bg },
-                    ]}
-                  >
-                    <Text
+                {overallStatus ? (
+                  <View style={styles.ringStatus}>
+                    <View
                       style={[
-                        styles.statusText,
-                        { color: STATUS_META[overallStatus.status].color },
+                        styles.statusChip,
+                        { backgroundColor: STATUS_META[overallStatus.status].bg },
                       ]}
                     >
-                      {statusText(overallStatus.diff, overallStatus.status)}
+                      <Text
+                        style={[
+                          styles.statusText,
+                          { color: STATUS_META[overallStatus.status].color },
+                        ]}
+                      >
+                        {statusText(overallStatus.diff, overallStatus.status)}
+                      </Text>
+                    </View>
+                    <Text style={styles.planText}>
+                      계획 {overallPlanned?.toFixed(1)}%
                     </Text>
                   </View>
-                  <Text style={styles.planText}>
-                    계획 {overallPlanned?.toFixed(1)}%
+                ) : (
+                  <Text style={[styles.planText, styles.ringHint]}>
+                    {isOwner
+                      ? '공정 계획을 정하면 지연 여부를 알려드려요'
+                      : '아직 공정 계획이 없어요'}
                   </Text>
-                </>
-              ) : (
-                <Text style={styles.planText}>
-                  {isOwner
-                    ? '공정 계획을 정하면 지연 여부를 알려드려요'
-                    : '아직 공정 계획이 없어요'}
-                </Text>
-              )}
-              <View style={styles.planLink}>
-                <Text style={styles.planLinkText}>진척 현황</Text>
-                <ChevronRight size={16} color={colors.white} />
+                )}
+                <Pressable
+                  style={styles.ringLink}
+                  onPress={goProgress}
+                  hitSlop={6}
+                >
+                  <Text style={styles.planLinkText}>진척 현황</Text>
+                  <ChevronRight size={16} color={colors.white} />
+                </Pressable>
               </View>
-            </Pressable>
+            </View>
 
             {/* 공정별 현황(누르면 해당 공정 선택) */}
             <View style={styles.overview}>
@@ -1114,6 +1116,11 @@ const styles = StyleSheet.create({
 
   // 전체 진행률(남색 카드)
   hero: { backgroundColor: colors.navy },
+  ringRow: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  ringSide: { flex: 1, gap: 6 },
+  ringStatus: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  ringHint: { marginTop: 2 },
+  ringLink: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
   overallRow: {
     flexDirection: 'row',
     alignItems: 'baseline',

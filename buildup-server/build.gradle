@@ -21,11 +21,20 @@ repositories {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
+	// 로그인 토큰 JWT(서명·검증: Spring Security의 Nimbus JOSE)
+	implementation 'org.springframework.security:spring-security-oauth2-jose'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	compileOnly 'org.projectlombok:lombok'
 	// 작업일보 엑셀(.xlsx) 내보내기
 	implementation 'org.apache.poi:poi-ooxml:5.4.1'
+	// 사진·첨부 파일 AWS S3 저장(buildup.storage=s3일 때)
+	implementation platform('software.amazon.awssdk:bom:2.55.6')
+	implementation 'software.amazon.awssdk:s3'
+	// API 문서(Swagger UI): /swagger-ui.html
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+	// 사진 촬영 정보(EXIF: 촬영 시각·GPS) 읽기
+	implementation 'com.drewnoakes:metadata-extractor:2.19.0'
 	// 휴대폰 알림(Firebase Cloud Messaging)
 	implementation 'com.google.firebase:firebase-admin:9.9.0'
 	runtimeOnly 'com.mysql:mysql-connector-j'
@@ -35,6 +44,8 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testCompileOnly 'org.projectlombok:lombok'
+	// 자동 테스트용 메모리 DB(내 MySQL을 건드리지 않음)
+	testRuntimeOnly 'com.h2database:h2'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }

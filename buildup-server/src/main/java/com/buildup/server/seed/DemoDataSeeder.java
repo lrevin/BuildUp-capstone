@@ -69,6 +69,10 @@ public class DemoDataSeeder implements CommandLineRunner {
         } else {
             upgradeExisting();
         }
+        if (users.findByEmail("sys@buildup.kr").isEmpty()) {
+            log.info("시스템 관리자 데모 계정을 추가합니다.");
+            user("시스템 관리자", "sys@buildup.kr", "010-0000-0000", Role.SYSTEM, "Build Up 운영팀");
+        }
     }
 
     /**
@@ -322,6 +326,9 @@ public class DemoDataSeeder implements CommandLineRunner {
             r.setEquipment("frame".equals(key) && i % 2 == 0 ? "타워크레인 1, 펌프카 1" : "");
             r.setAuthor(authors.get(i % authors.size()));
             r.setCreatedAt(at(lastDaysAgo + i * every, 16 + (i % 2)));
+            // 공정별 가장 최근 보고(현장 총관리자가 아닌 사람이 쓴 것)만 검토 대기, 나머지는 승인된 것으로
+            boolean ownerWrote = r.getAuthor().getId() != null && r.getAuthor().getId().equals(site.getOwner().getId());
+            r.setReviewStatus(i == 0 && !ownerWrote ? Report.PENDING : Report.APPROVED);
             rows.add(r);
             to = from;
         }

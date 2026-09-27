@@ -178,6 +178,8 @@ export function CountBadge({
 }
 
 // 현장 상자(정사각형): 누르면 그 현장 보고 목록
+export const BLUE = '#3457D5';
+
 export function SiteTile({
   site,
   size,
@@ -203,7 +205,7 @@ export function SiteTile({
         { width: size, height: size },
         pressed && styles.pressed,
       ]}
-      accessibilityLabel={`${site.name} 보고 보기, 확인 안 한 보고 ${unread}건, 승인 대기 자재 ${waiting}건`}
+      accessibilityLabel={`${site.name} 보고 보기, 확인 안 한 보고 ${unread}건, 승인 대기 자재 ${waiting}건, 검토 대기 보고 ${site.pendingReviews ?? 0}건`}
     >
       <View style={styles.tileIcon}>
         <Building2 size={22} color={colors.text} strokeWidth={1.8} />
@@ -214,6 +216,9 @@ export function SiteTile({
         ) : null}
         {waiting > 0 ? (
           <CountBadge label="자재" n={waiting} color={ORANGE} />
+        ) : null}
+        {site.pendingReviews ? (
+          <CountBadge label="검토" n={site.pendingReviews} color={BLUE} />
         ) : null}
       </View>
       <View style={styles.tileBottom}>

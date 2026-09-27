@@ -45,6 +45,14 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
 
     long countBySiteId(Long siteId);
 
+    long countBySiteIdAndReviewStatus(Long siteId, String reviewStatus);
+
+    long countByReviewStatus(String reviewStatus);
+
+    long countByCreatedAtAfter(Instant after);
+
+    long countBySiteIdAndReviewStatusAndAuthorIdNot(Long siteId, String reviewStatus, Long authorId);
+
     boolean existsBySiteIdAndProcessKey(Long siteId, String processKey);
 
     long countBySiteIdAndAuthorId(Long siteId, Long authorId);

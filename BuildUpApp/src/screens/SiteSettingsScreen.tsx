@@ -1,4 +1,4 @@
-// 총관리자: 현장 정보 수정·본사 연결·현장 삭제
+// 총관리자: 현장 정보 수정·현장 위치·본사 연결·현장 삭제
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,10 +9,12 @@ import {
   View,
 } from 'react-native';
 import { Text } from '../components/Text';
-import { Building2, Trash2 } from 'lucide-react-native';
+import { Building2, MapPin, Trash2 } from 'lucide-react-native';
+import { currentPlace } from '../location';
 import {
   deleteSite,
   fetchSite,
+  setSiteLocation,
   linkCompany,
   previewCompany,
   unlinkCompany,
@@ -37,6 +39,8 @@ export default function SiteSettingsScreen({
   const [hqName, setHqName] = useState<string | null>(null);
   const [hqCode, setHqCode] = useState('');
   const [linking, setLinking] = useState(false);
+  const [place, setPlace] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locating, setLocating] = useState(false);
   const dialog = useDialog();
 
   useEffect(() => {
@@ -44,6 +48,11 @@ export default function SiteSettingsScreen({
       .then(s => {
         setLoaded({ name: s.name, address: s.address });
         setHqName(s.hqName);
+        setPlace(
+          s.latitude != null && s.longitude != null
+            ? { latitude: s.latitude, longitude: s.longitude }
+            : null,
+        );
         setName(s.name);
         setAddress(s.address);
       })
@@ -135,6 +144,60 @@ export default function SiteSettingsScreen({
     }
   };
 
+  // 현장 위치: 현장에 서서 누르면 지금 GPS 위치를 저장 → 보고 위치가 현장과 먼지 확인하는 기준
+  const onSavePlace = async () => {
+    setLocating(true);
+    try {
+      const p = await currentPlace();
+      if (!p) {
+        dialog.notice({
+          icon: 'danger',
+          title: '위치를 찾지 못했어요',
+          message: '위치 권한을 허용하고, GPS가 켜져 있는지 확인해 주세요.',
+        });
+        return;
+      }
+      const ok = await dialog.confirm({
+        title: '지금 위치를 현장 위치로 저장할까요?',
+        message: `현장에 있을 때 저장해 주세요.${
+          p.accuracy ? ` (오차 약 ${p.accuracy}m)` : ''
+        }\n이 위치에서 1km 넘게 떨어져 제출한 보고에는 확인 표시가 붙어요.`,
+        confirmText: '저장',
+      });
+      if (!ok) {
+        return;
+      }
+      const s = await setSiteLocation(siteId, p);
+      setPlace(
+        s.latitude != null && s.longitude != null
+          ? { latitude: s.latitude, longitude: s.longitude }
+          : null,
+      );
+      dialog.toast('현장 위치를 저장했어요', 'success');
+    } catch (e) {
+      dialog.notice({
+        icon: 'danger',
+        title: '저장하지 못했어요',
+        message: errorMessage(e),
+      });
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const onClearPlace = async () => {
+    setLocating(true);
+    try {
+      await setSiteLocation(siteId, null);
+      setPlace(null);
+      dialog.toast('현장 위치를 지웠어요');
+    } catch (e) {
+      dialog.toast(errorMessage(e), 'error');
+    } finally {
+      setLocating(false);
+    }
+  };
+
   const onDelete = async () => {
     const ok = await dialog.confirm({
       icon: 'danger',
@@ -178,6 +241,37 @@ export default function SiteSettingsScreen({
               value={address}
               onChangeText={setAddress}
             />
+
+            {/* 현장 위치 */}
+            <View style={[styles.hq, styles.placeBox]}>
+              <View style={styles.hqTitleRow}>
+                <MapPin size={18} color={colors.text} />
+                <Text style={styles.hqTitle}>현장 위치</Text>
+              </View>
+              <Text style={styles.hqDesc}>
+                {place
+                  ? `저장됨 (${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}). 여기서 1km 넘게 떨어져 제출한 보고에는 확인 표시가 붙어요.`
+                  : '현장에 서서 저장하면, 현장이 아닌 곳에서 제출하거나 찍은 사진을 알려 줘요.'}
+              </Text>
+              <View style={styles.hqRow}>
+                <Button
+                  title={place ? '지금 위치로 다시 저장' : '지금 위치를 현장 위치로 저장'}
+                  variant="outline"
+                  onPress={onSavePlace}
+                  loading={locating}
+                  style={[styles.hqBtn, styles.flex]}
+                />
+                {place ? (
+                  <Button
+                    title="지우기"
+                    variant="outline"
+                    onPress={onClearPlace}
+                    disabled={locating}
+                    style={styles.hqBtn}
+                  />
+                ) : null}
+              </View>
+            </View>
 
             {/* 본사 연결 */}
             <View style={styles.hq}>
@@ -277,6 +371,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     backgroundColor: colors.fill,
   },
+  placeBox: { marginBottom: 12 },
   hqTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   hqTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   hqDesc: {

@@ -40,6 +40,7 @@ final class WorkLogExcel {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final Map<String, String> REVIEW = Map.of("pending", "대기", "approved", "승인", "revision", "보완 요청");
     private static final Map<String, String> WEATHER = Map.of("sunny", "맑음", "cloudy", "흐림", "rain", "비", "snow", "눈");
 
     private final XSSFWorkbook wb = new XSSFWorkbook();
@@ -103,8 +104,8 @@ final class WorkLogExcel {
 
     private void reportsSheet(Site site, String period, List<Report> reports) {
         Sheet sh = wb.createSheet("작업일보");
-        String[] cols = {"날짜", "시간", "공정", "이전 진행률", "보고 진행률", "증가", "날씨", "인원", "장비", "메모", "작성자", "사진", "첨부"};
-        int[] widths = {12, 7, 14, 11, 11, 9, 7, 7, 22, 46, 10, 6, 6};
+        String[] cols = {"날짜", "시간", "공정", "이전 진행률", "보고 진행률", "증가", "날씨", "인원", "장비", "메모", "작성자", "사진", "첨부", "검토", "검토 코멘트"};
+        int[] widths = {12, 7, 14, 11, 11, 9, 7, 7, 22, 46, 10, 6, 6, 9, 30};
         int r = header(sh, site.getName() + " 작업일보", period, cols, widths);
         if (reports.isEmpty()) {
             Row row = sh.createRow(r);
@@ -133,6 +134,8 @@ final class WorkLogExcel {
             cell(row, 10, rep.getAuthor().getName(), center);
             num(row, 11, rep.getPhotos().size(), number);
             num(row, 12, rep.getFiles().size(), number);
+            cell(row, 13, REVIEW.getOrDefault(rep.status(), ""), center);
+            cell(row, 14, rep.getReviewComment(), wrap);
         }
         sh.setAutoFilter(new CellRangeAddress(first - 1, r - 1, 0, cols.length - 1));
     }

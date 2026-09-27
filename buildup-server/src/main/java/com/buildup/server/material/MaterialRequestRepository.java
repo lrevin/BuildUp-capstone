@@ -16,6 +16,8 @@ public interface MaterialRequestRepository extends JpaRepository<MaterialRequest
 
     long countBySiteIdAndStatus(Long siteId, String status);
 
+    long countByStatus(String status);
+
     @Query("select m from MaterialRequest m where m.site.id = :siteId")
     List<MaterialRequest> findAllBySiteId(Long siteId);
 }

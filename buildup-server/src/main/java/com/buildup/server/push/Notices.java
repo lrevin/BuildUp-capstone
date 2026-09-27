@@ -35,6 +35,31 @@ public class Notices {
         push.notifyUsers(to, "새 현장 보고 · " + site.getName(), body, data("report", site));
     }
 
+    /** 승인·보완 요청 → 보고한 사람 */
+    public void reportReviewed(Report r) {
+        boolean ok = Report.APPROVED.equals(r.status());
+        String body = r.getProcessName() + " " + pct(r.getToProgress())
+                + (r.getReviewComment() == null ? "" : " · " + r.getReviewComment());
+        push.notifyUsers(
+                List.of(r.getAuthor().getId()),
+                (ok ? "보고 승인 · " : "보완 요청 · ") + r.getSite().getName(),
+                body,
+                data("report", r.getSite()));
+    }
+
+    /** 보완해서 다시 올림 → 보완을 요청한 사람(없으면 검토할 수 있는 사람들) */
+    public void reportResubmitted(Report r) {
+        Set<Long> to = new LinkedHashSet<>();
+        if (r.getReviewer() != null) {
+            to.add(r.getReviewer().getId());
+        } else {
+            to.addAll(managers(r.getSite()));
+        }
+        to.remove(r.getAuthor().getId());
+        push.notifyUsers(to, "보완 완료 · " + r.getSite().getName(),
+                r.getAuthor().getName() + " · " + r.getProcessName() + " 보고를 보완했어요", data("report", r.getSite()));
+    }
+
     public void materialRequested(MaterialRequest m) {
         if (!MaterialRequest.REQUESTED.equals(m.getStatus())) {
             return; // 바로 승인된 요청(본사 없는 현장의 총관리자 본인 요청)은 알릴 사람이 없다

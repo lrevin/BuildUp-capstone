@@ -368,6 +368,18 @@ export async function submitReport(input: NewReport): Promise<Report> {
     } as any),
   );
   // 첨부 문서(엑셀·PDF 등): 원래 파일 이름 그대로 보낸다
+  // 사진별 촬영 시각(사진 파일에 촬영 정보가 없을 때 서버가 쓴다)
+  input.photoUris.forEach((_, i) =>
+    form.append('photoTakenAt', input.photoTakenAt?.[i] ?? ''),
+  );
+  // 제출 위치
+  if (input.location) {
+    form.append('latitude', String(input.location.latitude));
+    form.append('longitude', String(input.location.longitude));
+    if (input.location.accuracy != null) {
+      form.append('accuracy', String(input.location.accuracy));
+    }
+  }
   input.files.forEach(f =>
     form.append('files', {
       uri: f.uri,
@@ -379,6 +391,40 @@ export async function submitReport(input: NewReport): Promise<Report> {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return res.data;
+}
+
+// 본사 관계자·현장 총관리자: 보고 승인 / 보완 요청(코멘트 필수)
+export async function reviewReport(
+  reportId: string,
+  status: 'approved' | 'revision',
+  comment?: string,
+): Promise<Report> {
+  if (config.useDummy) {
+    return dummyWrite(() =>
+      dummyDb.reviewReport(requireUserId(), reportId, status, comment ?? ''),
+    );
+  }
+  return (
+    await api.patch<Report>(`/reports/${reportId}/review`, { status, comment })
+  ).data;
+}
+
+// 현장 총관리자: 현장 위치 저장(null이면 지우기)
+export async function setSiteLocation(
+  siteId: string,
+  point: { latitude: number; longitude: number } | null,
+): Promise<Site> {
+  if (config.useDummy) {
+    return dummyWrite(() =>
+      dummyDb.setSiteLocation(requireUserId(), siteId, point),
+    );
+  }
+  return (
+    await api.put<Site>(`/sites/${siteId}/location`, {
+      latitude: point?.latitude ?? null,
+      longitude: point?.longitude ?? null,
+    })
+  ).data;
 }
 
 // 작성자: 메모 수정

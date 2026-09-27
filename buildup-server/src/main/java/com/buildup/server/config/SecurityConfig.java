@@ -1,6 +1,6 @@
 package com.buildup.server.config;
 
-import com.buildup.server.auth.AuthTokenRepository;
+import com.buildup.server.auth.JwtTokens;
 import com.buildup.server.auth.TokenAuthFilter;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -38,8 +38,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(
             HttpSecurity http,
-            AuthTokenRepository tokens,
-            @org.springframework.beans.factory.annotation.Value("${buildup.login-days:30}") int loginDays)
+            JwtTokens jwt)
             throws Exception {
         http.csrf(csrf -> csrf.disable())
                 .cors(cors -> {})
@@ -47,7 +46,8 @@ public class SecurityConfig {
                 .formLogin(f -> f.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/api/auth/login", "/api/auth/signup", "/api/health", "/files/**", "/downloads/**", "/error")
+                        .requestMatchers("/api/auth/login", "/api/auth/signup", "/api/health", "/files/**", "/downloads/**", "/error",
+                                "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**")
                         .permitAll()
                         .anyRequest()
                         .authenticated())
@@ -59,7 +59,7 @@ public class SecurityConfig {
                     res.getWriter().write("{\"message\":\"로그인이 필요합니다.\"}");
                 }))
                 .addFilterBefore(
-                        new TokenAuthFilter(tokens, java.time.Duration.ofDays(loginDays)),
+                        new TokenAuthFilter(jwt),
                         UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
@@ -72,6 +72,8 @@ public class SecurityConfig {
         config.setAllowedOriginPatterns(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
+        // 웹 대시보드가 엑셀 파일 이름(한글)을 읽을 수 있게
+        config.setExposedHeaders(List.of("Content-Disposition"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;

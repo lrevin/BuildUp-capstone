@@ -30,6 +30,11 @@ import lombok.Setter;
 @NoArgsConstructor
 public class Report {
 
+    /** 검토 상태: 대기 → 승인 / 보완 요청(작성자가 메모를 고치면 다시 대기) */
+    public static final String PENDING = "pending";
+    public static final String APPROVED = "approved";
+    public static final String REVISION = "revision";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -73,12 +78,41 @@ public class Report {
     /** 메모를 고친 시각 */
     private Instant updatedAt;
 
-    /** 업로드한 사진 파일 이름(uploads 폴더 기준) */
+    /** 업로드한 사진(uploads 폴더 기준 파일 이름 + 촬영 시각·위치) */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "report_photos", joinColumns = @JoinColumn(name = "report_id"))
     @OrderColumn(name = "position")
-    @Column(name = "file_name", nullable = false, length = 100)
-    private List<String> photos = new ArrayList<>();
+    private List<ReportPhoto> photos = new ArrayList<>();
+
+    // ---- 제출 위치(보고를 제출할 때 휴대폰 GPS). 위치 권한을 안 주면 없음 ----
+    private Double latitude;
+
+    private Double longitude;
+
+    /** GPS 오차(m) */
+    private Double accuracy;
+
+    // ---- 검토(본사 또는 현장 총관리자) ----
+    /** null은 이 기능 전에 올라온 보고 → 승인으로 본다 */
+    @Column(length = 10)
+    private String reviewStatus = PENDING;
+
+    @Column(length = 500)
+    private String reviewComment;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reviewer_id")
+    private User reviewer;
+
+    private Instant reviewedAt;
+
+    public String status() {
+        return reviewStatus == null ? APPROVED : reviewStatus;
+    }
+
+    public List<String> photoFiles() {
+        return photos.stream().map(ReportPhoto::getFileName).toList();
+    }
 
     /** 첨부 문서(엑셀·PDF·한글 등) */
     @ElementCollection(fetch = FetchType.EAGER)

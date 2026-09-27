@@ -8,7 +8,7 @@ const store = createAsyncStorage('buildup');
 const KEYS = {
   server: 'server-config', // { useDummy, baseUrl }
   session: 'session', // { userId, token }
-  dummyDb: 'dummy-db-v6', // 데이터 모양이 바뀌면 버전을 올려 예전 저장본을 무시
+  dummyDb: 'dummy-db-v7', // 데이터 모양이 바뀌면 버전을 올려 예전 저장본을 무시
   draft: (userId: string, siteId: string) => `draft:${userId}:${siteId}`,
   seen: (userId: string) => `seen-reports:${userId}`, // { 현장 id: 마지막으로 본 시각 }
 };

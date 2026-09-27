@@ -61,6 +61,10 @@ public class User {
     @Column(nullable = false, length = 100)
     private String passwordHash;
 
+    /** 시스템 관리자가 사용을 중지한 계정(로그인 불가) */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean disabled;
+
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 }

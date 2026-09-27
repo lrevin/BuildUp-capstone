@@ -65,7 +65,7 @@ public class HqService {
     /** 연결된 모든 현장의 보고를 최신순으로 나눠 불러오기 */
     @Transactional(readOnly = true)
     public ReportPageDto reportPage(Long userId, String cursor, int size) {
-        return reports.pageForSites(linkedSites(userId).stream().map(Site::getId).toList(), cursor, size);
+        return reports.pageForSites(userId, linkedSites(userId).stream().map(Site::getId).toList(), cursor, size);
     }
 
     @Transactional(readOnly = true)

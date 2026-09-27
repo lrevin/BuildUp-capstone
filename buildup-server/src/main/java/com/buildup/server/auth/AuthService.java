@@ -26,7 +26,7 @@ public class AuthService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final UserRepository users;
-    private final AuthTokenRepository tokens;
+    private final JwtTokens jwt;
     private final PasswordEncoder passwordEncoder;
     private final CompanyRepository companies;
     private final AttemptLimiter limiter;
@@ -50,6 +50,10 @@ public class AuthService {
             throw ApiException.unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.");
         }
         limiter.clear(key);
+        // 비밀번호가 맞을 때만 알려 준다(다른 사람이 계정 상태를 알아낼 수 없게)
+        if (user.isDisabled()) {
+            throw ApiException.forbidden("사용이 중지된 계정이에요. 관리자에게 문의해 주세요.");
+        }
         return issue(user);
     }
 
@@ -154,17 +158,12 @@ public class AuthService {
 
     @Transactional
     public void logout(String token) {
-        if (token != null) {
-            tokens.deleteById(token);
-        }
+        jwt.revoke(token);
     }
 
+    /** 로그인·가입 성공 → JWT 발급 */
     private AuthResponse issue(User user) {
-        byte[] bytes = new byte[32];
-        RANDOM.nextBytes(bytes);
-        String token = HexFormat.of().formatHex(bytes);
-        tokens.save(new AuthToken(token, user));
-        return new AuthResponse(UserDto.of(user), token);
+        return new AuthResponse(UserDto.of(user), jwt.issue(user));
     }
 
     private static String normalize(String email) {

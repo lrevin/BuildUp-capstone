@@ -123,7 +123,9 @@ public class SiteService {
                 s.getMembers().size(),
                 s.overallProgress(),
                 s.getProcesses().stream().map(ProcessDto::of).toList(),
-                s.getCompany() == null ? null : s.getCompany().getName());
+                s.getCompany() == null ? null : s.getCompany().getName(),
+                s.getLatitude(),
+                s.getLongitude());
     }
 
     private SiteSummaryDto toSummary(Site s, Long userId) {
@@ -147,7 +149,35 @@ public class SiteService {
                 s.getProcesses().size(),
                 PlanCalc.overallPlanned(s.getProcesses(), Instant.now()),
                 s.getCompany() == null ? null : s.getCompany().getName(),
-                (int) materials.countBySiteIdAndStatus(s.getId(), MaterialRequest.REQUESTED));
+                (int) materials.countBySiteIdAndStatus(s.getId(), MaterialRequest.REQUESTED),
+                pendingReviews(s, userId, forHq));
+    }
+
+    /** 내가 검토(승인·보완 요청)할 수 있는 대기 보고 수: 본사는 전부, 현장 총관리자는 남이 쓴 보고 */
+    private int pendingReviews(Site s, Long userId, boolean forHq) {
+        if (forHq) {
+            return (int) reports.countBySiteIdAndReviewStatus(s.getId(), Report.PENDING);
+        }
+        if (s.isOwner(userId)) {
+            return (int) reports.countBySiteIdAndReviewStatusAndAuthorIdNot(s.getId(), Report.PENDING, userId);
+        }
+        return 0;
+    }
+
+    /** 현장 총관리자: 현장 위치 저장(보고 위치가 현장과 먼지 확인하는 기준) */
+    @Transactional
+    public SiteDto setLocation(Long userId, Long siteId, Double latitude, Double longitude) {
+        Site site = ownedSite(userId, siteId, "현장 위치를 저장");
+        if ((latitude == null) != (longitude == null)) {
+            throw ApiException.badRequest("위도와 경도를 함께 보내 주세요.");
+        }
+        if (latitude != null && (Math.abs(latitude) > 90 || Math.abs(longitude) > 180)) {
+            throw ApiException.badRequest("위치 값이 올바르지 않습니다.");
+        }
+        site.setLatitude(latitude);
+        site.setLongitude(longitude);
+        site.setLocationUpdatedAt(latitude == null ? null : Instant.now());
+        return toDto(site, userId);
     }
 
     // ---- 현장 ----
@@ -193,7 +223,7 @@ public class SiteService {
     public void delete(Long userId, Long siteId) {
         Site site = ownedSite(userId, siteId, "현장을 삭제");
         List<Report> siteReports = reports.findAllBySiteId(siteId);
-        siteReports.forEach(r -> files.deleteAfterCommit(r.getPhotos(), r.getFiles()));
+        siteReports.forEach(r -> files.deleteAfterCommit(r.photoFiles(), r.getFiles()));
         reports.deleteAll(siteReports);
         materials.deleteAll(materials.findAllBySiteId(siteId));
         sites.delete(site);
@@ -356,7 +386,7 @@ public class SiteService {
 
     @Transactional
     public SiteSummaryDto join(Long userId, String code) {
-        if (user(userId).getRole() == Role.HQ) {
+        if (user(userId).getRole() == Role.HQ || user(userId).getRole() == Role.SYSTEM) {
             throw ApiException.forbidden("본사 관계자는 현장 총관리자가 본사 코드로 연결한 현장을 볼 수 있어요.");
         }
         Site s = byCode("site-code:" + userId, sites.findByCode(code), "해당 코드의 현장을 찾을 수 없습니다.");

@@ -7,6 +7,8 @@ import com.buildup.server.user.UserDto;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,35 +17,41 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Tag(name = "01 로그인·회원가입", description = "가입, 로그인, 로그아웃, 내 정보, 관리자 전환")
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
     private final AuthService auth;
 
+    @Operation(summary = "로그인 → { user, token }")
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest req) {
         return auth.login(req);
     }
 
+    @Operation(summary = "회원가입(작업자·현장 관리자·본사 관계자)")
     @PostMapping("/signup")
     public AuthResponse signUp(@Valid @RequestBody SignUpRequest req) {
         return auth.signUp(req);
     }
 
     /** 저장된 토큰으로 로그인 유지 확인 */
+    @Operation(summary = "저장된 토큰으로 로그인 유지 확인")
     @GetMapping("/me")
     public UserDto me() {
         return auth.me(CurrentUser.id());
     }
 
     /** 현장 관리자로 전환하거나 보고 체계(본사 보고 / 최고 책임자)를 바꾼다 */
+    @Operation(summary = "현장 관리자로 전환 / 보고 체계(본사 보고·최고 책임자) 변경")
     @org.springframework.web.bind.annotation.PutMapping("/me/manager")
     public UserDto setManager(@RequestBody com.buildup.server.auth.AuthDtos.ManagerRequest req) {
         return auth.setManager(CurrentUser.id(), req.companyCode(), req.company(),
                 Boolean.TRUE.equals(req.linkSites()));
     }
 
+    @Operation(summary = "로그아웃(서버의 로그인 기록 삭제)")
     @PostMapping("/logout")
     public Map<String, Boolean> logout(HttpServletRequest request) {
         auth.logout(TokenAuthFilter.bearer(request));

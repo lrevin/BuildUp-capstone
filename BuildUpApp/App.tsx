@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StatusBar, StyleSheet, View } from 'react-native';
+import { Pressable, StatusBar, StyleSheet, View } from 'react-native';
 import { Text } from './src/components/Text';
 import {
   NavigationContainer,
@@ -38,6 +38,23 @@ import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+function SystemOnlyWeb() {
+  const { logout } = useAuth();
+  return (
+    <View style={styles.splash}>
+      <StatusBar barStyle="dark-content" />
+      <Logo size={56} />
+      <Text style={styles.splashText}>시스템 관리자 계정</Text>
+      <Text style={styles.systemText}>
+        시스템 관리자 기능은 웹 대시보드에서 이용해 주세요.
+      </Text>
+      <Pressable style={styles.systemBtn} onPress={logout}>
+        <Text style={styles.systemBtnText}>로그아웃</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // 로그인 여부에 따라 보여줄 화면 묶음이 바뀐다
 function RootNavigator() {
   const { user, restoring } = useAuth();
@@ -51,6 +68,11 @@ function RootNavigator() {
         <Text style={styles.splashText}>Build Up</Text>
       </View>
     );
+  }
+
+  // 시스템 관리자는 웹 대시보드 전용
+  if (user?.role === 'system') {
+    return <SystemOnlyWeb />;
   }
 
   return (
@@ -173,6 +195,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.white,
   },
+  systemText: {
+    marginTop: 10,
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  systemBtn: {
+    marginTop: 24,
+    paddingHorizontal: 28,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
+  },
+  systemBtnText: { fontSize: 15, fontWeight: '700', color: '#111827' },
   splashText: {
     marginTop: 14,
     fontSize: 22,

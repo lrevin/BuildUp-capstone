@@ -50,6 +50,14 @@ public class Site {
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
+    /** 현장 위치(현장 관리자가 현장에서 '현재 위치로 저장'). 보고 위치 확인에 쓴다. 없으면 확인 안 함 */
+    private Double latitude;
+
+    private Double longitude;
+
+    /** 현장 위치를 저장한 시각(이후에 올라온 보고만 위치를 확인한다) */
+    private Instant locationUpdatedAt;
+
     /** 연결된 본사(없으면 본사 보고 없이 현장 안에서만 운영) */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id")

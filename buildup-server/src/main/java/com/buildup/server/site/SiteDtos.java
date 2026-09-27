@@ -45,7 +45,9 @@ public final class SiteDtos {
             int memberCount,
             double overallProgress,
             List<ProcessDto> processes,
-            String hqName) {}
+            String hqName,
+            Double latitude,
+            Double longitude) {}
 
     /** 현장 목록 카드 */
     public record SiteSummaryDto(
@@ -60,7 +62,8 @@ public final class SiteDtos {
             int processCount,
             Double plannedProgress,
             String hqName,
-            int pendingMaterials) {}
+            int pendingMaterials,
+            int pendingReviews) {}
 
     /** 코드 입력 후 참여 전 미리보기 */
     public record SitePreviewDto(
@@ -76,6 +79,9 @@ public final class SiteDtos {
             long reportCount) {}
 
     public record CodeDto(String code) {}
+
+    /** 현장 위치 저장: { latitude, longitude } (둘 다 null이면 지우기) */
+    public record LocationRequest(Double latitude, Double longitude) {}
 
     // ---- 요청 ----
 

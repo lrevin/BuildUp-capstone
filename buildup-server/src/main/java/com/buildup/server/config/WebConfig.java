@@ -24,7 +24,9 @@ public class WebConfig implements WebMvcConfigurer {
 
     /** 앱의 '서버 연결 확인'용 */
     @RestController
+    @io.swagger.v3.oas.annotations.tags.Tag(name = "00 서버 상태", description = "서버가 켜져 있는지 확인")
     static class HealthController {
+        @io.swagger.v3.oas.annotations.Operation(summary = "서버 연결 확인(로그인 불필요)")
         @GetMapping("/api/health")
         public Map<String, String> health() {
             return Map.of("status", "ok", "service", "buildup-server");

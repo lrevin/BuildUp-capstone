@@ -20,6 +20,7 @@ import { useDialog } from '../components/Dialog';
 import PhotoViewer from '../components/PhotoViewer';
 import { AppHeader, Avatar, Card, Chip, IconButton } from '../components/ui';
 import { WEATHER_META } from '../components/WorkLog';
+import { ReviewCard } from '../components/Review';
 import { fileSize } from './ReportScreen';
 
 function InfoRow({
@@ -53,6 +54,14 @@ import { colors, radius } from '../theme';
 import { formatDate, formatTime, pct } from '../utils/format';
 
 const GRID_GAP = 6;
+
+// 사진 촬영 시각: 9/24 12:00
+function shortTime(iso: string) {
+  const d = new Date(iso);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm} 촬영`;
+}
 
 export default function ReportDetailScreen({
   navigation,
@@ -131,6 +140,11 @@ export default function ReportDetailScreen({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {report.review ? (
+          <View style={styles.reviewGap}>
+            <ReviewCard report={report} onChange={setReport} />
+          </View>
+        ) : null}
         <Card>
           <View style={styles.authorRow}>
             <Avatar name={report.author} size={40} />
@@ -175,7 +189,30 @@ export default function ReportDetailScreen({
               report.workLog.workers ? `${report.workLog.workers}명` : null
             }
           />
-          <InfoRow label="장비" value={report.workLog.equipment || null} last />
+          <InfoRow label="장비" value={report.workLog.equipment || null} />
+          <Pressable
+            disabled={!report.location}
+            onPress={() =>
+              report.location &&
+              Linking.openURL(
+                `https://maps.google.com/?q=${report.location.latitude},${report.location.longitude}`,
+              )
+            }
+          >
+            <InfoRow
+              label="제출 위치"
+              value={
+                report.location
+                  ? `지도에서 보기${
+                      report.location.accuracy
+                        ? ` (오차 ${Math.round(report.location.accuracy)}m)`
+                        : ''
+                    }`
+                  : null
+              }
+              last
+            />
+          </Pressable>
         </Card>
 
         <Card style={styles.gap}>
@@ -245,14 +282,25 @@ export default function ReportDetailScreen({
           </Text>
           {report.photoUris.length > 0 ? (
             <View style={styles.grid}>
-              {report.photoUris.map((uri, i) => (
-                <Pressable key={uri} onPress={() => setViewing(i)}>
-                  <Image
-                    source={{ uri }}
-                    style={[styles.photo, { width: cell, height: cell }]}
-                  />
-                </Pressable>
-              ))}
+              {report.photoUris.map((uri, i) => {
+                const taken = report.photos?.[i]?.takenAt;
+                return (
+                  <Pressable key={uri} onPress={() => setViewing(i)}>
+                    <Image
+                      source={{ uri }}
+                      style={[styles.photo, { width: cell, height: cell }]}
+                    />
+                    {/* 촬영 시각(사진에 기록된 값) */}
+                    {taken ? (
+                      <View style={[styles.takenBar, { width: cell }]}>
+                        <Text style={styles.takenText} numberOfLines={1}>
+                          {shortTime(taken)}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
             </View>
           ) : (
             <View style={styles.noPhoto}>
@@ -309,6 +357,17 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32 },
   gap: { marginTop: 12 },
+  reviewGap: { marginBottom: 12 },
+  takenBar: {
+    position: 'absolute',
+    bottom: 0,
+    backgroundColor: 'rgba(15,23,42,0.6)',
+    borderBottomLeftRadius: radius.sm,
+    borderBottomRightRadius: radius.sm,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+  },
+  takenText: { fontSize: 10, color: '#fff', fontWeight: '600' },
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   author: { fontSize: 16, fontWeight: '700', color: colors.text },
   date: { fontSize: 13, color: colors.textMuted, marginTop: 2 },

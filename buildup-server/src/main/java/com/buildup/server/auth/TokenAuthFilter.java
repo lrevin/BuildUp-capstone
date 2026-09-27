@@ -10,15 +10,13 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Authorization: Bearer {토큰} 헤더를 확인해 로그인한 사용자 id를 보안 컨텍스트에 넣는다. */
+/** Authorization: Bearer {JWT} 헤더를 확인해 로그인한 사용자 id를 보안 컨텍스트에 넣는다. */
 public class TokenAuthFilter extends OncePerRequestFilter {
 
-    private final AuthTokenRepository tokens;
-    private final java.time.Duration validFor;
+    private final JwtTokens jwt;
 
-    public TokenAuthFilter(AuthTokenRepository tokens, java.time.Duration validFor) {
-        this.tokens = tokens;
-        this.validFor = validFor;
+    public TokenAuthFilter(JwtTokens jwt) {
+        this.jwt = jwt;
     }
 
     public static String bearer(HttpServletRequest request) {
@@ -31,14 +29,9 @@ public class TokenAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String token = bearer(request);
         if (token != null) {
-            // 로그인한 지 오래된 토큰은 무시(다시 로그인해야 함)
-            var found = tokens.findWithUserByToken(token);
-            if (found.isPresent() && !found.get().getCreatedAt().plus(validFor).isAfter(java.time.Instant.now())) {
-                tokens.deleteById(token);
-                found = java.util.Optional.empty();
-            }
-            found.ifPresent(t -> {
-                var auth = new UsernamePasswordAuthenticationToken(t.getUser().getId(), token, List.of());
+            // 서명이 틀렸거나, 만료됐거나, 로그아웃한 토큰은 무시 → 로그인이 필요한 API는 401
+            jwt.verify(token).ifPresent(userId -> {
+                var auth = new UsernamePasswordAuthenticationToken(userId, token, List.of());
                 SecurityContextHolder.getContext().setAuthentication(auth);
             });
         }

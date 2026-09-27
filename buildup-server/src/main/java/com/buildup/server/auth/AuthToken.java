@@ -13,7 +13,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** 로그인 토큰. 로그아웃하면 행을 지워 바로 무효화한다. */
+/** 로그인 기록(JWT의 토큰 번호 jti). 로그아웃하면 행을 지워 그 JWT를 바로 무효화한다. */
 @Entity
 @Table(name = "auth_tokens")
 @Getter

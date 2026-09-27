@@ -4,6 +4,8 @@ import com.buildup.server.auth.CurrentUser;
 import com.buildup.server.export.ExportService.ExcelFile;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,6 +19,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
 
 @RestController
+@Tag(name = "06 작업일보 엑셀", description = "작업일보 엑셀 내려받기")
 @RequiredArgsConstructor
 public class ExportController {
 
@@ -28,6 +31,7 @@ public class ExportController {
     public record LinkDto(String url, String from, String to, long expiresInSeconds) {}
 
     /** 웹 대시보드: 로그인 토큰을 붙여 바로 엑셀 받기. from/to 비우면 최근 7일 */
+    @Operation(summary = "웹 대시보드: 로그인 토큰을 붙여 바로 엑셀 받기. from/to 비우면 최근 7일")
     @GetMapping("/api/sites/{siteId}/worklog.xlsx")
     public ResponseEntity<byte[]> download(
             @PathVariable Long siteId,
@@ -38,6 +42,7 @@ public class ExportController {
     }
 
     /** 앱: 10분짜리 내려받기 주소 발급 → 앱이 브라우저로 연다 */
+    @Operation(summary = "앱: 10분짜리 내려받기 주소 발급 → 앱이 브라우저로 연다")
     @PostMapping("/api/sites/{siteId}/worklog/link")
     public LinkDto link(
             @PathVariable Long siteId,
@@ -53,6 +58,7 @@ public class ExportController {
     }
 
     /** 임시 주소(로그인 없이, 주소 자체가 비밀번호 역할) */
+    @Operation(summary = "임시 주소(로그인 없이, 주소 자체가 비밀번호 역할)")
     @GetMapping("/downloads/{ticket}")
     public ResponseEntity<byte[]> byTicket(@PathVariable String ticket) {
         return file(service.byTicket(ticket));

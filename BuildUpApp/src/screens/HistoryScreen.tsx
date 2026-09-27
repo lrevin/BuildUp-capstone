@@ -12,7 +12,8 @@ import {
 import { Text } from '../components/Text';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Paperclip } from 'lucide-react-native';
+import { AlertTriangle, Paperclip } from 'lucide-react-native';
+import { ReviewBadge } from '../components/Review';
 import { fetchReportPage } from '../api/buildup';
 import { useUser } from '../auth';
 import { seenStore } from '../data/storage';
@@ -205,8 +206,14 @@ export function ReportCard({
         </Text>
       ) : null}
       <View style={styles.cardTop}>
-        <View style={styles.chip}>
-          <Text style={styles.chipText}>{report.processName}</Text>
+        <View style={styles.chipRow}>
+          <View style={styles.chip}>
+            <Text style={styles.chipText}>{report.processName}</Text>
+          </View>
+          <ReviewBadge status={report.review?.status} />
+          {report.checks?.length ? (
+            <AlertTriangle size={15} color="#C26D00" />
+          ) : null}
         </View>
         <Text style={styles.time}>
           {formatTime(report.createdAt)} · {report.author}
@@ -316,6 +323,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  chipRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chip: {
     backgroundColor: colors.fill,
     borderRadius: 6,
