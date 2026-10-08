@@ -64,6 +64,7 @@ public final class ReportDtos {
             String siteName,
             String processKey,
             String processName,
+            String work,
             double from,
             double to,
             List<String> photoUris,
@@ -89,6 +90,7 @@ public final class ReportDtos {
                     r.getSite().getName(),
                     r.getProcessKey(),
                     r.getProcessName(),
+                    r.workText(),
                     r.getFromProgress(),
                     r.getToProgress(),
                     r.photoFiles().stream().map(FileStorage::url).toList(),
@@ -175,7 +177,7 @@ public final class ReportDtos {
     /**
      * 나눠 불러온 보고 한 묶음.
      * nextCursor: 다음 묶음을 부를 때 그대로 넘기는 값(더 없으면 null)
-     * total, processes: 첫 묶음에만(보고 이력 화면의 '전체 40', '전기 11' 필터). 나머지 묶음은 null
+     * total: 첫 묶음에만(보고 이력 화면의 '전체 40'). processes는 예전 앱 호환용(항상 빈 목록)
      */
     public record ReportPageDto(
             List<ReportDto> items, String nextCursor, Long total, List<ProcessCountDto> processes) {}

@@ -1,6 +1,6 @@
 // 폰 저장소: 로그인 유지, 더미 DB 저장, 보고 작성 임시저장, 본사의 보고 확인 시각
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
-import { PickedFile, ProcessKey, User, WorkLog } from '../types';
+import { PickedFile, User, WorkLog } from '../types';
 import { DummyState, dummyState } from './dummy';
 
 const store = createAsyncStorage('buildup');
@@ -8,8 +8,8 @@ const store = createAsyncStorage('buildup');
 const KEYS = {
   server: 'server-config', // { useDummy, baseUrl }
   session: 'session', // { userId, token }
-  dummyDb: 'dummy-db-v7', // 데이터 모양이 바뀌면 버전을 올려 예전 저장본을 무시
-  draft: (userId: string, siteId: string) => `draft:${userId}:${siteId}`,
+  dummyDb: 'dummy-db-v8', // 데이터 모양이 바뀌면 버전을 올려 예전 저장본을 무시
+  draft: (userId: string, siteId: string) => `draft:${userId}:${siteId}-v2`,
   seen: (userId: string) => `seen-reports:${userId}`, // { 현장 id: 마지막으로 본 시각 }
 };
 
@@ -70,8 +70,8 @@ export const dummyStore = {
 // ---- 보고 작성 임시저장 ----
 
 export interface ReportDraft {
-  selected: ProcessKey;
-  values: Partial<Record<ProcessKey, number>>;
+  work: string; // 진행한 작업
+  value: number; // 입력 중인 현장 전체 진행률
   memo: string;
   photoUris: string[];
   files?: PickedFile[];

@@ -3,11 +3,9 @@ package com.buildup.server.report;
 import com.buildup.server.common.ApiException;
 import com.buildup.server.push.Notices;
 import com.buildup.server.report.ReportDtos.ReportDto;
-import com.buildup.server.report.ReportDtos.ProcessCountDto;
 import com.buildup.server.report.ReportDtos.ReportPageDto;
 import com.buildup.server.report.ReportDtos.WorkLogDto;
 import com.buildup.server.site.Site;
-import com.buildup.server.site.SiteProcess;
 import com.buildup.server.site.SiteService;
 import com.buildup.server.user.User;
 import com.buildup.server.user.UserRepository;
@@ -24,12 +22,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 보고 제출·조회·메모 수정·삭제 (권한 규칙은 앱 src/data/dummy.ts와 같다) */
+/** 보고 제출(진행한 작업 + 현장 전체 진행률)·조회·검토·메모 수정·삭제 (권한 규칙은 앱 src/data/dummy.ts와 같다) */
 @Service
 @RequiredArgsConstructor
 public class ReportService {
 
     public static final int MAX_PHOTOS = 10;
+    /** 새 방식 보고의 공정 키(공정을 고르지 않는다) */
+    public static final String WORK_KEY = "work";
     public static final int MAX_FILES = 5;
     private static final Set<String> WEATHERS = Set.of("sunny", "cloudy", "rain", "snow");
 
@@ -39,7 +39,7 @@ public class ReportService {
     private final FileStorage files;
     private final Notices notices;
 
-    /** 작성자는 수정 가능, (작성자 또는 현장 관리자) + 그 공정의 가장 최근 보고만 삭제 가능 */
+    /** 작성자는 수정 가능, (작성자 또는 현장 관리자) + 현장의 가장 최근 보고만 삭제 가능 */
     private ReportDto toDto(Report r, User viewer, boolean isLatest) {
         boolean isAuthor = r.getAuthor().getId().equals(viewer.getId());
         boolean canDelete = isLatest && (isAuthor || r.getSite().isOwner(viewer.getId()));
@@ -63,7 +63,7 @@ public class ReportService {
     }
 
     private boolean isLatest(Report r) {
-        return reports.findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(r.getSite().getId(), r.getProcessKey())
+        return reports.findFirstBySiteIdOrderByCreatedAtDescIdDesc(r.getSite().getId())
                 .map(latest -> latest.getId().equals(r.getId()))
                 .orElse(false);
     }
@@ -73,11 +73,10 @@ public class ReportService {
         sites.viewableSite(userId, siteId);
         User viewer = viewer(userId);
         List<Report> rows = reports.findBySiteIdOrderByCreatedAtDescIdDesc(siteId);
-        // 공정별 가장 최근 보고(목록이 최신순이라 처음 나온 것이 최근)
-        Map<String, Long> latest = new HashMap<>();
-        rows.forEach(r -> latest.putIfAbsent(r.getProcessKey(), r.getId()));
+        // 목록이 최신순이라 처음 것이 현장의 가장 최근 보고
+        Long latest = rows.isEmpty() ? null : rows.get(0).getId();
         return rows.stream()
-                .map(r -> toDto(r, viewer, r.getId().equals(latest.get(r.getProcessKey()))))
+                .map(r -> toDto(r, viewer, r.getId().equals(latest)))
                 .toList();
     }
 
@@ -98,48 +97,26 @@ public class ReportService {
     public static final int PAGE_MAX = 50;
     private static final Instant FAR_FUTURE = Instant.parse("9999-12-31T00:00:00Z");
 
-    /** 현장 보고 이력 한 묶음(최신순). 첫 묶음에는 공정별 보고 수도 담는다 */
+    /** 현장 보고 이력 한 묶음(최신순). 첫 묶음에는 전체 보고 수도 담는다 */
     @Transactional(readOnly = true)
-    public ReportPageDto page(Long userId, Long siteId, String processKey, String cursor, int size) {
-        Site site = sites.viewableSite(userId, siteId);
+    public ReportPageDto page(Long userId, Long siteId, String cursor, int size) {
+        sites.viewableSite(userId, siteId);
         User viewer = viewer(userId);
-        String key = processKey == null || processKey.isBlank() ? null : processKey;
         int n = pageSize(size);
-        List<Report> rows = fetchPage(List.of(siteId), key, cursor, n);
+        List<Report> rows = fetchPage(List.of(siteId), null, cursor, n);
         String next = nextCursor(rows, n);
         if (rows.size() > n) {
             rows = rows.subList(0, n);
         }
-        // 삭제 가능 여부: 그 공정의 가장 최근 보고인지(묶음에 들어 있는 공정만 확인)
-        Map<String, Long> latest = new HashMap<>();
-        rows.stream().map(Report::getProcessKey).distinct().forEach(k -> reports
-                .findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(siteId, k)
-                .ifPresent(r -> latest.put(k, r.getId())));
+        // 삭제 가능 여부: 현장의 가장 최근 보고인지
+        Long latest = reports.findFirstBySiteIdOrderByCreatedAtDescIdDesc(siteId).map(Report::getId).orElse(null);
         List<ReportDto> items = rows.stream()
-                .map(r -> toDto(r, viewer, r.getId().equals(latest.get(r.getProcessKey()))))
+                .map(r -> toDto(r, viewer, r.getId().equals(latest)))
                 .toList();
-
         if (cursor != null && !cursor.isBlank()) {
             return new ReportPageDto(items, next, null, null);
         }
-        // 첫 묶음: 공정별 보고 수(공정 순서대로, 보고가 있는 공정만)
-        Map<String, Long> counts = new HashMap<>();
-        for (Object[] row : reports.countByProcess(siteId)) {
-            counts.put((String) row[0], ((Number) row[1]).longValue());
-        }
-        long total = counts.values().stream().mapToLong(Long::longValue).sum();
-        List<ProcessCountDto> processes = new ArrayList<>();
-        site.getProcesses().stream()
-                .sorted(java.util.Comparator.comparingInt(SiteProcess::getSortOrder))
-                .forEach(p -> {
-                    Long c = counts.remove(p.getKey());
-                    if (c != null) {
-                        processes.add(new ProcessCountDto(p.getKey(), p.getName(), c));
-                    }
-                });
-        // 공정 목록에 없는 키(예전 데이터)는 키 이름 그대로
-        counts.forEach((k, c) -> processes.add(new ProcessCountDto(k, k, c)));
-        return new ReportPageDto(items, next, total, processes);
+        return new ReportPageDto(items, next, reports.countBySiteId(siteId), List.of());
     }
 
     /** 본사: 연결된 여러 현장의 보고 한 묶음(본사는 검토만 가능) */
@@ -229,7 +206,7 @@ public class ReportService {
     public ReportDto create(
             Long userId,
             Long siteId,
-            String processKey,
+            String work,
             double to,
             String memo,
             WorkLogDto workLog,
@@ -238,12 +215,16 @@ public class ReportService {
             SubmitPlace place,
             List<String> photoTakenAt) {
         Site site = sites.memberSite(userId, siteId);
-        SiteProcess process = site.getProcesses().stream()
-                .filter(p -> p.getKey().equals(processKey))
-                .findFirst()
-                .orElseThrow(() -> ApiException.badRequest("존재하지 않는 공정입니다."));
-        if (!Double.isFinite(to) || to < process.getProgress() || to > 100) {
-            throw ApiException.badRequest("진행률은 마지막 보고 값(" + process.getProgress() + "%) 이상, 100% 이하여야 해요.");
+        String workText = work == null ? "" : work.trim();
+        if (workText.isEmpty()) {
+            throw ApiException.badRequest("진행한 작업을 입력해 주세요.");
+        }
+        if (workText.length() > 100) {
+            throw ApiException.badRequest("진행한 작업은 100자까지 쓸 수 있어요.");
+        }
+        double current = site.overallProgress();
+        if (!Double.isFinite(to) || to < current || to > 100) {
+            throw ApiException.badRequest("진행률은 지금 진행률(" + current + "%) 이상, 100% 이하여야 해요.");
         }
         List<MultipartFile> uploads = photos == null
                 ? List.of()
@@ -269,9 +250,10 @@ public class ReportService {
         Instant now = Instant.now();
         Report r = new Report();
         r.setSite(site);
-        r.setProcessKey(process.getKey());
-        r.setProcessName(process.getName());
-        r.setFromProgress(process.getProgress());
+        r.setProcessKey(WORK_KEY);
+        r.setProcessName(workText.length() > 30 ? workText.substring(0, 30) : workText);
+        r.setWork(workText);
+        r.setFromProgress(current);
         r.setToProgress(Math.round(to * 10) / 10.0);
         r.setMemo(memo == null ? "" : memo.trim());
         r.setWeather(log.weather());
@@ -299,8 +281,8 @@ public class ReportService {
         reports.save(r);
         notices.reportCreated(r);
 
-        process.setProgress(r.getToProgress());
-        process.setLastReportedAt(now);
+        site.setProgress(r.getToProgress());
+        site.setLastReportedAt(now);
         return toDto(r, author, true);
     }
 
@@ -359,21 +341,17 @@ public class ReportService {
     public void delete(Long userId, Long reportId) {
         Report r = find(userId, reportId);
         if (!toDto(r, viewer(userId), isLatest(r)).canDelete()) {
-            throw ApiException.forbidden("각 공정의 가장 최근 보고만, 작성자나 현장 관리자가 삭제할 수 있습니다.");
+            throw ApiException.forbidden("현장의 가장 최근 보고만, 작성자나 현장 관리자가 삭제할 수 있습니다.");
         }
         Site site = r.getSite();
-        String key = r.getProcessKey();
         double from = r.getFromProgress();
         files.deleteAfterCommit(r.photoFiles(), r.getFiles());
         reports.delete(r);
         reports.flush();
 
-        SiteProcess process = site.getProcesses().stream()
-                .filter(p -> p.getKey().equals(key))
-                .findFirst()
-                .orElseThrow();
-        process.setProgress(from);
-        process.setLastReportedAt(reports.findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(site.getId(), key)
+        // 진행률을 보고 전 값으로 되돌린다
+        site.setProgress(from);
+        site.setLastReportedAt(reports.findFirstBySiteIdOrderByCreatedAtDescIdDesc(site.getId())
                 .map(Report::getCreatedAt)
                 .orElse(null));
     }

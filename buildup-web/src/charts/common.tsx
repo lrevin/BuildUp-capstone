@@ -1,9 +1,8 @@
 // 차트 공통 색·툴팁·범례
-// 색은 dataviz 기본 팔레트 1·2번(파랑·주황)을 흰 카드 위에서 검증해 사용(validate_palette.js: 모두 통과)
+// 색은 dataviz 기본 팔레트 1번(파랑)을 흰 카드 위에서 검증해 사용
 
 export const CHART = {
-  actual: '#2a78d6', // 실제 진행률
-  plan: '#eb6834', // 계획 진행률
+  actual: '#2a78d6', // 실적(현장 전체 진행률)
   surface: '#FFFFFF',
   grid: '#ECEEF1',
   axis: '#D5D8DE',

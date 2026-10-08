@@ -56,3 +56,26 @@ export function dayLabel(key: string) {
   const dt = new Date(y, m - 1, d);
   return `${m}월 ${d}일 (${DAYS[dt.getDay()]})`;
 }
+
+// Date → 'YYYY-MM-DD'(현지 날짜)
+export function toYMD(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function addDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+export const round1 = (v: number) => Math.round(v * 10) / 10;
+
+// 오늘(현지 날짜) 시각인지
+export function isToday(iso: string | null | undefined) {
+  return !!iso && dayKey(iso) === toYMD(new Date());
+}
+
+// 보고의 '진행한 작업'(예전 데이터에 work 가 비어 있으면 공정 이름으로 대신)
+export function reportWork(r: { work?: string | null; processName?: string | null }) {
+  return r.work?.trim() || r.processName?.trim() || '작업 내용 없음';
+}

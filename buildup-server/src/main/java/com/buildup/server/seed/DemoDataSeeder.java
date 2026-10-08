@@ -12,7 +12,6 @@ import com.buildup.server.site.Site;
 import com.buildup.server.site.SiteMember;
 import com.buildup.server.site.SiteProcess;
 import com.buildup.server.site.SiteRepository;
-import com.buildup.server.site.SiteService;
 import com.buildup.server.user.Role;
 import com.buildup.server.user.User;
 import com.buildup.server.user.UserRepository;
@@ -40,10 +39,18 @@ import org.springframework.transaction.annotation.Transactional;
  *   작업자 worker@buildup.kr → 한빛·원주 단독주택 참여 / choi@ 도 한빛 참여 중
  */
 @Component
+@org.springframework.core.annotation.Order(1) // 다음에 SiteProgressMigration(2번)이 새 방식으로 바꾼다
 @RequiredArgsConstructor
 public class DemoDataSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DemoDataSeeder.class);
+
+    /** 데모 보고 이력을 만들 때 쓰는 공정: [키, 이름, 비중] (만든 뒤 SiteProgressMigration이 현장 전체 진행률로 바꾼다) */
+    private static final List<Object[]> DEMO_PROCESSES = List.of(
+            new Object[] {"frame", "골조", 0.4},
+            new Object[] {"electric", "전기", 0.2},
+            new Object[] {"plumbing", "설비", 0.2},
+            new Object[] {"finish", "마감", 0.2});
 
     private static final double[] STEPS = {1.5, 1.0, 2.0, 1.5, 0.5, 2.5, 1.0, 1.5, 2.0, 1.0, 1.5, 0.5, 2.0, 1.5, 1.0};
     private static final String[] WEATHERS = {"sunny", "sunny", "cloudy", "sunny", "rain", "cloudy", "sunny"};
@@ -293,7 +300,10 @@ public class DemoDataSeeder implements CommandLineRunner {
         s.setAddress(address);
         s.setOwner(owner);
         s.setCode(code);
-        SiteService.addDefaultProcesses(s);
+        for (int i = 0; i < DEMO_PROCESSES.size(); i++) {
+            Object[] d = DEMO_PROCESSES.get(i);
+            s.getProcesses().add(new SiteProcess(s, (String) d[0], (String) d[1], (double) d[2], i));
+        }
         LocalDate today = Times.today();
         for (int i = 0; i < s.getProcesses().size(); i++) {
             SiteProcess p = s.getProcesses().get(i);

@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
   Pressable,
   RefreshControl,
-  ScrollView,
   SectionList,
   StyleSheet,
   View,
@@ -23,7 +22,7 @@ import { usePagedReports } from '../components/usePagedReports';
 import { WEATHER_META, workLogSummary } from '../components/WorkLog';
 import { ScreenProps } from '../navigation';
 import { colors, radius, shadow } from '../theme';
-import { ProcessKey, Report } from '../types';
+import { Report } from '../types';
 import { formatDate, formatTime, pct } from '../utils/format';
 
 interface Section {
@@ -55,22 +54,17 @@ export default function HistoryScreen({
   const insets = useSafeAreaInsets();
   const { siteId, siteName } = route.params;
   const user = useUser();
-  const [filter, setFilter] = useState<ProcessKey | 'all'>('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  // 30건씩 나눠 불러오기(공정 필터는 서버에서 거른다)
+  // 30건씩 나눠 불러오기
   const loader = useCallback(
-    (cursor: string | null) =>
-      fetchReportPage(siteId, {
-        cursor,
-        processKey: filter === 'all' ? null : filter,
-      }),
-    [siteId, filter],
+    (cursor: string | null) => fetchReportPage(siteId, { cursor }),
+    [siteId],
   );
-  const { items, total, processes, loadingMore, error, reload, loadMore } =
+  const { items, total, loadingMore, error, reload, loadMore } =
     usePagedReports(loader);
 
-  // 화면에 들어올 때마다(필터를 바꿔도) 처음부터 새로 불러오기
+  // 화면에 들어올 때마다 처음부터 새로 불러오기
   useFocusEffect(
     useCallback(() => {
       reload();
@@ -79,21 +73,6 @@ export default function HistoryScreen({
     }, [reload, siteId, user.id]),
   );
 
-  // 고른 공정의 보고가 모두 지워졌으면 '전체'로
-  useEffect(() => {
-    if (processes && filter !== 'all' && !processes.some(p => p.key === filter)) {
-      setFilter('all');
-    }
-  }, [processes, filter]);
-
-  const filters = [
-    { key: 'all' as const, label: '전체', count: total },
-    ...(processes ?? []).map(p => ({
-      key: p.key,
-      label: p.name,
-      count: p.count as number | null,
-    })),
-  ];
   const sections = items ? groupByDate(items) : null;
 
   const onRefresh = async () => {
@@ -106,36 +85,11 @@ export default function HistoryScreen({
     <View style={styles.root}>
       <AppHeader
         title="보고 이력"
-        subtitle={siteName}
+        subtitle={total !== null ? `${siteName} · 보고 ${total}건` : siteName}
         onBack={() => navigation.goBack()}
         right={<ExcelExportButton siteId={siteId} />}
       />
 
-      <View style={styles.filterBar}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}
-        >
-          {filters.map(f => {
-            const active = f.key === filter;
-            return (
-              <Pressable
-                key={f.key}
-                onPress={() => setFilter(f.key)}
-                style={[styles.filter, active && styles.filterActive]}
-              >
-                <Text
-                  style={[styles.filterText, active && styles.filterTextActive]}
-                >
-                  {f.label}
-                  {f.count !== null ? ` ${f.count}` : ''}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
 
       {sections === null ? (
         <ActivityIndicator
@@ -173,9 +127,7 @@ export default function HistoryScreen({
             <Text style={styles.empty}>
               {error
                 ? '보고 이력을 불러오지 못했어요.'
-                : filter === 'all'
-                ? '아직 제출한 보고가 없어요.'
-                : '이 공정의 보고가 없어요.'}
+                : '아직 제출한 보고가 없어요.'}
             </Text>
           }
         />
@@ -207,9 +159,6 @@ export function ReportCard({
       ) : null}
       <View style={styles.cardTop}>
         <View style={styles.chipRow}>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>{report.processName}</Text>
-          </View>
           <ReviewBadge status={report.review?.status} />
           {report.checks?.length ? (
             <AlertTriangle size={15} color="#C26D00" />
@@ -220,9 +169,14 @@ export function ReportCard({
         </Text>
       </View>
 
+      {/* 진행한 작업 */}
+      <Text style={styles.work} numberOfLines={2}>
+        {report.work || report.processName}
+      </Text>
+
       <View style={styles.progressRow}>
         <Text style={styles.progressText}>
-          {pct(report.from)} →{' '}
+          진행률 {pct(report.from)} →{' '}
           <Text style={styles.progressTo}>{pct(report.to)}</Text>
         </Text>
         <Text style={styles.diff}>+{diff.toFixed(1)}%p</Text>
@@ -277,23 +231,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   loading: { marginTop: 48 },
   moreLoading: { marginVertical: 16 },
-  filterBar: {
-    backgroundColor: colors.white,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  filters: { paddingHorizontal: 20, paddingVertical: 10, gap: 6 },
-  filter: {
-    paddingHorizontal: 14,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-  },
-  filterActive: { backgroundColor: colors.navy, borderColor: colors.navy },
-  filterText: { fontSize: 14, color: colors.textSub, fontWeight: '500' },
-  filterTextActive: { color: colors.white, fontWeight: '700' },
   cardPressed: { backgroundColor: '#FAFAFB' },
   list: { paddingHorizontal: 20 },
   sectionTitle: {
@@ -323,20 +260,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  chipRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  chip: {
-    backgroundColor: colors.fill,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  chipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 20 },
+  work: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    lineHeight: 23,
+    marginTop: 10,
   },
-  chipText: { fontSize: 12, fontWeight: '700', color: colors.text },
   time: { fontSize: 12, color: colors.textMuted },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    marginTop: 12,
+    marginTop: 8,
   },
   progressText: { fontSize: 14, color: colors.textSub },
   progressTo: { fontSize: 18, fontWeight: '700', color: colors.text },

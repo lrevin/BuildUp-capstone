@@ -13,7 +13,10 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
     @EntityGraph(attributePaths = "author")
     List<Report> findBySiteIdOrderByCreatedAtDescIdDesc(Long siteId);
 
-    /** 해당 공정의 가장 최근 보고 */
+    /** 현장의 가장 최근 보고 */
+    Optional<Report> findFirstBySiteIdOrderByCreatedAtDescIdDesc(Long siteId);
+
+    /** 해당 공정의 가장 최근 보고(예전 방식) */
     Optional<Report> findFirstBySiteIdAndProcessKeyOrderByCreatedAtDescIdDesc(Long siteId, String processKey);
 
     /** 본사 화면: 여러 현장의 최근 보고 */

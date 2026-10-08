@@ -36,7 +36,6 @@ import { ScreenProps } from '../navigation';
 import { colors, radius, shadow } from '../theme';
 import { SiteSummary } from '../types';
 import { pct } from '../utils/format';
-import { STATUS_META, scheduleStatus, statusText } from '../utils/plan';
 import { BLUE, SiteTile } from './HqHomeScreen';
 
 export default function SitesScreen({ navigation }: ScreenProps<'Sites'>) {
@@ -244,10 +243,6 @@ export function SiteCard({
   onPress: () => void;
   hq?: boolean;
 }) {
-  const status =
-    site.plannedProgress !== null
-      ? scheduleStatus(site.overallProgress, site.plannedProgress)
-      : null;
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
@@ -268,6 +263,11 @@ export function SiteCard({
           <Text style={styles.address} numberOfLines={1}>
             {site.address}
           </Text>
+          {site.workType ? (
+            <Text style={styles.workType} numberOfLines={1}>
+              {site.workType}
+            </Text>
+          ) : null}
           {site.isOwner && site.hqName && !hq ? (
             <Text style={styles.hqLine} numberOfLines={1}>
               본사 보고 · {site.hqName}
@@ -284,32 +284,9 @@ export function SiteCard({
               style={[styles.fill, { width: `${site.overallProgress}%` }]}
             />
           </View>
-          {site.plannedProgress !== null ? (
-            <View style={[styles.tick, { left: `${site.plannedProgress}%` }]} />
-          ) : null}
         </View>
         <Text style={styles.progress}>{pct(site.overallProgress)}</Text>
       </View>
-      {status ? (
-        <View style={styles.planRow}>
-          <View
-            style={[
-              styles.statusChip,
-              { backgroundColor: STATUS_META[status.status].bg },
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusText,
-                { color: STATUS_META[status.status].color },
-              ]}
-            >
-              {statusText(status.diff, status.status)}
-            </Text>
-          </View>
-          <Text style={styles.planText}>계획 {pct(site.plannedProgress!)}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.metaRow}>
         <Users size={14} color={colors.textMuted} />
@@ -397,6 +374,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   ownerChipText: { fontSize: 11, fontWeight: '700', color: colors.textSub },
+  workType: { fontSize: 13, fontWeight: '600', color: colors.textSub, marginTop: 4 },
   address: { fontSize: 13, color: colors.textSub, marginTop: 4 },
   hqLine: { fontSize: 12, fontWeight: '600', color: '#2563EB', marginTop: 4 },
   gridRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
@@ -409,23 +387,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   trackWrap: { flex: 1, justifyContent: 'center' },
-  tick: {
-    position: 'absolute',
-    width: 2,
-    height: 12,
-    marginLeft: -1,
-    borderRadius: 1,
-    backgroundColor: colors.textSub,
-  },
-  planRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
-  },
-  statusChip: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  statusText: { fontSize: 12, fontWeight: '700' },
-  planText: { fontSize: 12, color: colors.textMuted },
   track: {
     height: 6,
     borderRadius: 3,

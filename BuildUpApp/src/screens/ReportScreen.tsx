@@ -24,12 +24,10 @@ import {
 } from '@react-native-documents/picker';
 import {
   Building2,
-  CalendarRange,
   FileText,
   Paperclip,
   ChevronRight,
   TrendingUp,
-  CircleCheck,
   Settings,
   Camera,
   ClipboardList,
@@ -68,24 +66,12 @@ import {
 import { MAX_PHOTOS } from '../data/dummy';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
-import {
-  MaterialRequest,
-  PickedFile,
-  ProcessKey,
-  Site,
-  WorkLog,
-} from '../types';
+import { MaterialRequest, PickedFile, Site, WorkLog } from '../types';
 import { draftStore } from '../data/storage';
 import { formatDate, formatTime, isToday, pct } from '../utils/format';
-import {
-  STATUS_META,
-  overallPlannedAt,
-  plannedAt,
-  scheduleStatus,
-  statusText,
-} from '../utils/plan';
 
-const STEP = 0.5;
+const STEP = 1;
+const WORK_MAX = 100;
 const MAX_FILES = 5;
 const MAX_FILE_MB = 20;
 // 첨부할 수 있는 문서(서버 FileStorage.DOC_ALLOWED와 같음)
@@ -102,12 +88,7 @@ export const fileSize = (bytes: number | null | undefined) =>
     : `${Math.max(1, Math.round(bytes / 1024))}KB`;
 const ICON = { size: 20, color: colors.text, strokeWidth: 2 };
 
-// 공정별 입력값을 마지막 보고 값으로 맞춘다
-const baseValues = (site: Site) =>
-  Object.fromEntries(site.processes.map(p => [p.key, p.progress])) as Record<
-    ProcessKey,
-    number
-  >;
+const round1 = (v: number) => Math.round(v * 10) / 10;
 
 export default function ReportScreen({
   navigation,
@@ -119,9 +100,12 @@ export default function ReportScreen({
   const dialog = useDialog();
   const [site, setSite] = useState<Site | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [selected, setSelected] = useState<ProcessKey>('');
+  const [work, setWork] = useState(''); // 진행한 작업
+  const [workFocused, setWorkFocused] = useState(false);
   const [files, setFiles] = useState<PickedFile[]>([]);
-  const [todayValues, setTodayValues] = useState<Record<ProcessKey, number>>();
+  // 입력 중인 현장 전체 진행률(보고하는 사람이 판단). null = 아직 불러오기 전
+  const [value, setValue] = useState<number | null>(null);
+  const [valueText, setValueText] = useState<string | null>(null); // 숫자 직접 입력 중
   const [memo, setMemo] = useState('');
   const [memoFocused, setMemoFocused] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -133,8 +117,8 @@ export default function ReportScreen({
   const [materials, setMaterials] = useState<MaterialRequest[]>([]);
   // 임시저장: 처음 한 번 불러온 뒤부터 입력이 바뀔 때마다 저장
   const hydrated = useRef(false);
-  // 직전에 받은 공정별 진행률(내가 올린 값과, 보고 삭제로 내려간 값을 구분하려고)
-  const lastBase = useRef<Record<ProcessKey, number>>({});
+  // 직전에 받은 현장 진행률(내가 올린 값과, 보고 삭제로 내려간 값을 구분하려고)
+  const lastBase = useRef(0);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -143,29 +127,18 @@ export default function ReportScreen({
       const s = await fetchSite(siteId);
       setSite(s);
       const prevBase = lastBase.current;
-      lastBase.current = baseValues(s);
-      // 고른 공정이 없어졌으면(또는 처음이면) 첫 번째 공정으로
-      setSelected(prev =>
-        s.processes.some(p => p.key === prev) ? prev : s.processes[0]?.key ?? '',
-      );
+      lastBase.current = s.overallProgress;
       // 자재 요청 현황(실패해도 보고 작성에는 지장 없음)
       fetchMaterials(siteId)
         .then(setMaterials)
         .catch(() => {});
       if (!hydrated.current) {
         // 처음 들어올 때: 기준값 + 작성 중이던 임시저장 내용
-        const base = baseValues(s);
+        let base = s.overallProgress;
         const draft = await draftStore.load(user.id, siteId);
         if (draft) {
-          (Object.keys(draft.values) as ProcessKey[]).forEach(k => {
-            const v = draft.values[k];
-            if (v !== undefined && k in base) {
-              base[k] = Math.min(100, Math.max(base[k], v));
-            }
-          });
-          if (s.processes.some(p => p.key === draft.selected)) {
-            setSelected(draft.selected);
-          }
+          base = Math.min(100, Math.max(base, draft.value ?? base));
+          setWork(draft.work ?? '');
           setMemo(draft.memo);
           setPhotos(draft.photoUris.map(uri => ({ uri })));
           setFiles(draft.files ?? []);
@@ -174,24 +147,16 @@ export default function ReportScreen({
           }
           setRestoredAt(draft.savedAt);
         }
-        setTodayValues(base);
+        setValue(base);
         hydrated.current = true;
       } else {
         // 다른 사람이 보고했거나 보고가 지워졌으면 입력값을 최신 진행률에 맞춘다
-        setTodayValues(prev => {
-          const next = baseValues(s);
-          if (prev) {
-            s.processes.forEach(p => {
-              const v = prev[p.key];
-              const old = prevBase[p.key] ?? p.progress;
-              // 사용자가 직전 기준값보다 올려 둔 값만 유지(보고 삭제로 내려간 차이는 버림)
-              if (v !== undefined && v > old && v > p.progress) {
-                next[p.key] = Math.min(100, v);
-              }
-            });
-          }
-          return next;
-        });
+        // (사용자가 직전 기준값보다 올려 둔 값만 유지, 보고 삭제로 내려간 차이는 버림)
+        setValue(prev =>
+          prev !== null && prev > prevBase && prev > s.overallProgress
+            ? Math.min(100, prev)
+            : s.overallProgress,
+        );
       }
     } catch {
       setLoadError(true);
@@ -200,15 +165,14 @@ export default function ReportScreen({
 
   // 입력이 바뀌면 0.5초 뒤 임시저장(바뀐 게 없으면 삭제)
   useEffect(() => {
-    if (!hydrated.current || !site || !todayValues) {
+    if (!hydrated.current || !site || value === null) {
       return;
     }
     const t = setTimeout(() => {
-      const changed = site.processes.filter(
-        p => todayValues[p.key] !== p.progress,
-      );
+      const changed = value !== site.overallProgress;
       if (
-        changed.length === 0 &&
+        !changed &&
+        !work.trim() &&
         !memo.trim() &&
         photos.length === 0 &&
         files.length === 0 &&
@@ -218,10 +182,8 @@ export default function ReportScreen({
         return;
       }
       draftStore.save(user.id, siteId, {
-        selected,
-        values: Object.fromEntries(
-          changed.map(p => [p.key, todayValues[p.key]]),
-        ),
+        work,
+        value,
         memo,
         photoUris: photos.map(p => p.uri!),
         files,
@@ -230,22 +192,13 @@ export default function ReportScreen({
       });
     }, 500);
     return () => clearTimeout(t);
-  }, [
-    site,
-    todayValues,
-    memo,
-    photos,
-    files,
-    workLog,
-    selected,
-    user.id,
-    siteId,
-  ]);
+  }, [site, value, work, memo, photos, files, workLog, user.id, siteId]);
 
   const discardDraft = async () => {
     const ok = await dialog.confirm({
       title: '새로 작성할까요?',
-      message: '임시저장된 진행률, 사진, 첨부 파일, 작업 정보, 메모가 지워져요.',
+      message:
+        '임시저장된 진행한 작업, 진행률, 사진, 첨부 파일, 작업 정보, 메모가 지워져요.',
       confirmText: '지우기',
       danger: true,
     });
@@ -253,8 +206,9 @@ export default function ReportScreen({
       return;
     }
     if (site) {
-      setTodayValues(baseValues(site));
+      setValue(site.overallProgress);
     }
+    setWork('');
     setMemo('');
     setPhotos([]);
     setFiles([]);
@@ -408,7 +362,7 @@ export default function ReportScreen({
     }
   };
 
-  if (!site || !todayValues) {
+  if (!site || value === null) {
     return (
       <View style={styles.root}>
         <AppHeader title="" onBack={() => navigation.goBack()} />
@@ -428,57 +382,40 @@ export default function ReportScreen({
     );
   }
 
-  // 공정이 아직 없는 현장: 총관리자에게 공정 만들기 안내
-  if (site.processes.length === 0) {
-    const owner = site.ownerId === user.id;
-    return (
-      <View style={styles.root}>
-        <AppHeader
-          title={site.name}
-          subtitle={formatDate()}
-          onBack={() => navigation.goBack()}
-        />
-        <View style={styles.center}>
-          <View style={styles.noProcIcon}>
-            <CalendarRange size={28} color={colors.textMuted} />
-          </View>
-          <Text style={styles.noProcTitle}>아직 공정이 없어요</Text>
-          <Text style={styles.noProcDesc}>
-            {owner
-              ? '현장에 맞게 공정을 먼저 만들어 주세요.\n공정을 만들면 작업자들이 보고할 수 있어요.'
-              : '현장 총관리자가 공정을 만들면\n보고할 수 있어요.'}
-          </Text>
-          {owner ? (
-            <Button
-              title="공정 만들기"
-              onPress={() => navigation.navigate('Plan', { siteId: site.id })}
-              style={styles.retry}
-            />
-          ) : null}
-        </View>
-      </View>
-    );
-  }
-
-  const process =
-    site.processes.find(p => p.key === selected) ?? site.processes[0];
-  const base = process.progress; // 마지막 보고 값
-  const baseLabel = !process.lastReportedAt
+  const base = site.overallProgress; // 마지막 보고 값(현장 전체)
+  const baseLabel = !site.lastReportedAt
     ? '시작'
-    : isToday(process.lastReportedAt)
+    : isToday(site.lastReportedAt)
     ? '직전 보고'
-    : `${new Date(process.lastReportedAt).getMonth() + 1}/${new Date(
-        process.lastReportedAt,
+    : `${new Date(site.lastReportedAt).getMonth() + 1}/${new Date(
+        site.lastReportedAt,
       ).getDate()} 보고`;
-  const today = todayValues[process.key] ?? process.progress;
-  const added = today - base;
+  const today = value;
+  const added = round1(today - base);
 
-  const change = (delta: number) => {
-    // 마지막 보고 값 아래로, 100% 위로는 못 가게 제한
-    const next = Math.min(100, Math.max(base, today + delta));
-    setTodayValues(
-      v => v && { ...v, [process.key]: Math.round(next * 10) / 10 },
-    );
+  // 마지막 보고 값 아래로, 100% 위로는 못 가게 제한
+  const clamp = (v: number) => round1(Math.min(100, Math.max(base, v)));
+  const change = (delta: number) => setValue(clamp(today + delta));
+  const commitValueText = () => {
+    if (valueText !== null) {
+      const n = Number(valueText.replace(',', '.'));
+      if (Number.isFinite(n)) {
+        setValue(clamp(n));
+        if (n < base) {
+          dialog.toast(`지금 진행률(${pct(base)})보다 낮게는 못 적어요`, 'error');
+        }
+      }
+      setValueText(null);
+    }
+  };
+
+  // 보고 제출 버튼: 진행한 작업은 꼭 적어야 한다
+  const openSubmit = () => {
+    if (!work.trim()) {
+      dialog.toast('진행한 작업을 적어 주세요', 'error');
+      return;
+    }
+    setSheetOpen(true);
   };
 
   const handleSubmit = async () => {
@@ -493,7 +430,7 @@ export default function ReportScreen({
       const place = await currentPlace();
       await submitReport({
         siteId: site.id,
-        processKey: process.key,
+        work: work.trim(),
         to: today,
         photoUris: photos.map(p => p.uri!),
         photoTakenAt: photos.map(p => p.timestamp ?? null),
@@ -503,25 +440,19 @@ export default function ReportScreen({
         workLog: { ...workLog, equipment: workLog.equipment.trim() },
       });
       // 제출 성공: 화면의 기준값을 바로 제출한 값으로(새로고침이 실패해도 중복 제출 안 되게)
+      const submittedWork = work.trim();
       const now = new Date().toISOString();
-      const local = {
-        ...site,
-        processes: site.processes.map(p =>
-          p.key === process.key
-            ? { ...p, progress: today, lastReportedAt: now }
-            : p,
-        ),
-      };
-      setSite(local);
-      setTodayValues(baseValues(local));
-      lastBase.current = baseValues(local);
+      setSite({ ...site, overallProgress: today, lastReportedAt: now });
+      setValue(today);
+      lastBase.current = today;
       fetchSite(site.id)
         .then(updated => {
           setSite(updated);
-          setTodayValues(baseValues(updated));
-          lastBase.current = baseValues(updated);
+          setValue(updated.overallProgress);
+          lastBase.current = updated.overallProgress;
         })
         .catch(() => {});
+      setWork('');
       setPhotos([]);
       setFiles([]);
       setMemo('');
@@ -533,7 +464,7 @@ export default function ReportScreen({
         icon: 'success',
         title: '보고를 제출했어요',
         message:
-          `${process.name} ${pct(base)} → ${pct(today)} (+${added.toFixed(
+          `${submittedWork}\n진행률 ${pct(base)} → ${pct(today)} (+${added.toFixed(
             1,
           )}%p)\n` +
           `사진 ${submittedPhotos}장` +
@@ -562,15 +493,8 @@ export default function ReportScreen({
     }
   };
 
-  const reportedToday = site.processes.filter(p =>
-    isToday(p.lastReportedAt),
-  ).length;
+  const reportedToday = isToday(site.lastReportedAt);
   const isOwner = site.ownerId === user.id;
-  const overallPlanned = overallPlannedAt(site.processes);
-  const overallStatus =
-    overallPlanned !== null
-      ? scheduleStatus(site.overallProgress, overallPlanned)
-      : null;
   const goProgress = () =>
     navigation.navigate('Progress', { siteId: site.id, siteName: site.name });
   const goMaterials = () =>
@@ -579,7 +503,6 @@ export default function ReportScreen({
     navigation.navigate('MaterialRequest', {
       siteId: site.id,
       siteName: site.name,
-      processKey: selected,
     });
   // 총관리자: 내가 승인·반려할 요청 / 작업자: 내 요청 중 승인 대기
   const waitingMaterials = materials.filter(m => m.canApprove).length;
@@ -632,43 +555,17 @@ export default function ReportScreen({
           {/* 전체 진행률 */}
           <Card style={styles.hero}>
             <View style={styles.ringRow}>
-              <ProgressRing
-                value={site.overallProgress}
-                planned={overallPlanned}
-              />
+              <ProgressRing value={site.overallProgress} />
               <View style={styles.ringSide}>
-                <Text style={styles.label}>전체 진행률</Text>
-                <Text style={styles.todayCount}>
-                  오늘 보고 {reportedToday}/{site.processes.length}
-                </Text>
-                {overallStatus ? (
-                  <View style={styles.ringStatus}>
-                    <View
-                      style={[
-                        styles.statusChip,
-                        { backgroundColor: STATUS_META[overallStatus.status].bg },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusText,
-                          { color: STATUS_META[overallStatus.status].color },
-                        ]}
-                      >
-                        {statusText(overallStatus.diff, overallStatus.status)}
-                      </Text>
-                    </View>
-                    <Text style={styles.planText}>
-                      계획 {overallPlanned?.toFixed(1)}%
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={[styles.planText, styles.ringHint]}>
-                    {isOwner
-                      ? '공정 계획을 정하면 지연 여부를 알려드려요'
-                      : '아직 공정 계획이 없어요'}
+                <Text style={styles.label}>현장 전체 진행률</Text>
+                {site.workType ? (
+                  <Text style={styles.workTypeText} numberOfLines={2}>
+                    {site.workType}
                   </Text>
-                )}
+                ) : null}
+                <Text style={styles.todayCount}>
+                  {reportedToday ? '오늘 보고 있음' : '오늘 아직 보고 없음'}
+                </Text>
                 <Pressable
                   style={styles.ringLink}
                   onPress={goProgress}
@@ -679,95 +576,55 @@ export default function ReportScreen({
                 </Pressable>
               </View>
             </View>
-
-            {/* 공정별 현황(누르면 해당 공정 선택) */}
-            <View style={styles.overview}>
-              {site.processes.map(p => {
-                const active = p.key === selected;
-                const planned = plannedAt(p);
-                const behind =
-                  planned !== null &&
-                  scheduleStatus(p.progress, planned).status === 'behind';
-                return (
-                  <Pressable
-                    key={p.key}
-                    style={styles.ovRow}
-                    onPress={() => setSelected(p.key)}
-                    hitSlop={4}
-                  >
-                    <View style={styles.ovNameBox}>
-                      <Text
-                        style={[styles.ovName, active && styles.ovNameActive]}
-                      >
-                        {p.name}
-                      </Text>
-                      {isToday(p.lastReportedAt) ? (
-                        <CircleCheck size={13} color={colors.success} />
-                      ) : null}
-                    </View>
-                    <View style={styles.ovTrackWrap}>
-                      <View style={styles.ovTrack}>
-                        <View
-                          style={[
-                            styles.ovFill,
-                            active && styles.ovFillActive,
-                            { width: `${p.progress}%` },
-                          ]}
-                        />
-                      </View>
-                      {planned !== null ? (
-                        <View
-                          style={[styles.ovTick, { left: `${planned}%` }]}
-                        />
-                      ) : null}
-                    </View>
-                    <Text
-                      style={[
-                        styles.ovValue,
-                        active && styles.ovNameActive,
-                        behind && styles.ovBehind,
-                      ]}
-                    >
-                      {p.progress.toFixed(1)}%
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
           </Card>
 
-          {/* 공정 선택 + 진행률 */}
+          {/* 진행한 작업 */}
           <Card style={styles.gap}>
-            <Text style={styles.cardTitle}>공정</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.procChips}
-            >
-              {site.processes.map(p => {
-                const active = p.key === process.key;
-                return (
-                  <Pressable
-                    key={p.key}
-                    style={[styles.procChip, active && styles.procChipActive]}
-                    onPress={() => setSelected(p.key)}
-                  >
-                    <Text
-                      style={[
-                        styles.procChipText,
-                        active && styles.procChipTextActive,
-                      ]}
-                    >
-                      {p.name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            <View style={styles.fileTitleRow}>
+              <Text style={styles.cardTitleInline}>진행한 작업</Text>
+              <Text style={styles.fileCount}>
+                {work.length}/{WORK_MAX}
+              </Text>
+            </View>
+            <TextInput
+              style={[styles.workInput, workFocused && styles.memoFocused]}
+              value={work}
+              onChangeText={t => setWork(t.slice(0, WORK_MAX))}
+              onFocus={() => setWorkFocused(true)}
+              onBlur={() => setWorkFocused(false)}
+              placeholder="예) 2층 욕실 방수, 거실 도배, 5층 전기 배선"
+              placeholderTextColor={colors.textMuted}
+              maxLength={WORK_MAX}
+              multiline
+              textAlignVertical="top"
+            />
+          </Card>
+
+          {/* 현장 전체 진행률 */}
+          <Card style={styles.gap}>
+            <Text style={styles.cardTitleInline}>현장 전체 진행률</Text>
+            <Text style={styles.valueHint}>
+              공사 전체가 얼마나 진행됐는지 직접 판단해서 적어 주세요
+            </Text>
 
             <View style={styles.progressTop}>
               <View>
-                <Text style={styles.progressValue}>{today.toFixed(1)}%</Text>
+                <View style={styles.valueRow}>
+                  <TextInput
+                    style={styles.progressValue}
+                    value={valueText ?? today.toFixed(1)}
+                    onFocus={() => setValueText(String(today))}
+                    onChangeText={t =>
+                      setValueText(t.replace(/[^0-9.,]/g, '').slice(0, 5))
+                    }
+                    onBlur={commitValueText}
+                    onSubmitEditing={commitValueText}
+                    keyboardType="decimal-pad"
+                    selectTextOnFocus
+                    accessibilityLabel="현장 전체 진행률 직접 입력"
+                  />
+                  <Text style={styles.progressUnit}>%</Text>
+                </View>
                 <Text style={styles.progressSub}>
                   {baseLabel} {base.toFixed(1)}%
                   {added > 0 ? (
@@ -779,7 +636,7 @@ export default function ReportScreen({
               </View>
               <View style={styles.stepper}>
                 <Pressable
-                  accessibilityLabel="0.5%p 내리기"
+                  accessibilityLabel="1%p 내리기"
                   style={[styles.stepBtn, !canMinus && styles.disabled]}
                   onPress={() => change(-STEP)}
                   disabled={!canMinus}
@@ -787,7 +644,7 @@ export default function ReportScreen({
                   <Minus {...ICON} />
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="0.5%p 올리기"
+                  accessibilityLabel="1%p 올리기"
                   style={[styles.stepBtn, !canPlus && styles.disabled]}
                   onPress={() => change(STEP)}
                   disabled={!canPlus}
@@ -806,7 +663,26 @@ export default function ReportScreen({
               <Text style={styles.legendText}>누적</Text>
               <View style={[styles.dot, styles.dotToday]} />
               <Text style={styles.legendText}>오늘 작업분</Text>
-              <Text style={styles.legendStep}>버튼 1회 {STEP}%p</Text>
+            </View>
+            {/* 빨리 올리기 */}
+            <View style={styles.quickRow}>
+              {[5, 10].map(n => (
+                <Pressable
+                  key={n}
+                  style={[styles.quickBtn, today >= 100 && styles.disabled]}
+                  onPress={() => change(n)}
+                  disabled={today >= 100}
+                >
+                  <Text style={styles.quickText}>+{n}%p</Text>
+                </Pressable>
+              ))}
+              <Pressable
+                style={[styles.quickBtn, added <= 0 && styles.disabled]}
+                onPress={() => setValue(base)}
+                disabled={added <= 0}
+              >
+                <Text style={styles.quickText}>처음 값으로</Text>
+              </Pressable>
             </View>
           </Card>
 
@@ -960,14 +836,14 @@ export default function ReportScreen({
         </ScrollView>
 
         <BottomBar>
-          <Button title="보고 제출" onPress={() => setSheetOpen(true)} />
+          <Button title="보고 제출" onPress={openSubmit} />
         </BottomBar>
       </KeyboardAvoidingView>
 
       <SubmitSheet
         visible={sheetOpen}
         siteName={site.name}
-        processName={process.name}
+        processName={work.trim()}
         from={base}
         to={today}
         photoCount={photos.length}
@@ -1036,12 +912,6 @@ export default function ReportScreen({
                     }),
                 },
                 {
-                  icon: <CalendarRange {...ICON} />,
-                  label: '공정 관리',
-                  onPress: () =>
-                    navigation.navigate('Plan', { siteId: site.id }),
-                },
-                {
                   icon: <Settings {...ICON} />,
                   label: '현장 설정',
                   onPress: () =>
@@ -1107,129 +977,46 @@ const styles = StyleSheet.create({
   restoredText: { flex: 1, fontSize: 13, color: '#8A5E00' },
   restoredLink: { fontSize: 13, fontWeight: '700', color: '#8A5E00' },
   todayCount: { color: colors.white, fontWeight: '600' },
-  ovNameBox: {
-    width: 92,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
 
   // 전체 진행률(남색 카드)
   hero: { backgroundColor: colors.navy },
+  workTypeText: { fontSize: 14, fontWeight: '700', color: colors.white, marginTop: 4 },
+  workInput: {
+    minHeight: 72,
+    borderRadius: radius.md,
+    backgroundColor: colors.fill,
+    padding: 14,
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.text,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  valueHint: { fontSize: 13, color: colors.textSub, marginTop: 4, marginBottom: 6 },
+  valueRow: { flexDirection: 'row', alignItems: 'baseline' },
+  progressUnit: { fontSize: 22, fontWeight: '800', color: colors.text, marginLeft: 2 },
+  quickRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  quickBtn: {
+    paddingHorizontal: 14,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: 'center',
+  },
+  quickText: { fontSize: 14, fontWeight: '600', color: colors.text },
+
   ringRow: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   ringSide: { flex: 1, gap: 6 },
-  ringStatus: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  ringHint: { marginTop: 2 },
   ringLink: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  overallRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-  },
-  overallValue: { fontSize: 30, fontWeight: '800', color: colors.white },
-  overallUnit: { fontSize: 18, fontWeight: '700', color: '#A9B0C0' },
-  thinTrackWrap: { marginTop: 12 },
-  planTick: {
-    position: 'absolute',
-    top: -3,
-    width: 2,
-    height: 14,
-    marginLeft: -1,
-    borderRadius: 1,
-    backgroundColor: colors.white,
-  },
-  planRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  statusChip: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  statusText: { fontSize: 12, fontWeight: '700' },
-  planText: { flexShrink: 1, fontSize: 13, color: '#A9B0C0' },
   planLink: {
     marginLeft: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
   },
   planLinkText: { fontSize: 13, fontWeight: '600', color: colors.white },
-  ovTrackWrap: { flex: 1, justifyContent: 'center' },
-  ovTick: {
-    position: 'absolute',
-    width: 2,
-    height: 10,
-    marginLeft: -1,
-    borderRadius: 1,
-    backgroundColor: colors.white,
-  },
-  ovBehind: { color: '#FF8A8A' },
-  thinTrack: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    overflow: 'hidden',
-  },
-  thinFill: { height: '100%', borderRadius: 4, backgroundColor: colors.yellow },
-  overview: {
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    gap: 10,
-  },
-  ovRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  ovName: { fontSize: 13, color: '#A9B0C0' },
-  ovNameActive: { color: colors.white, fontWeight: '700' },
-  ovTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    overflow: 'hidden',
-  },
-  ovFill: { height: '100%', backgroundColor: 'rgba(255,255,255,0.45)' },
-  ovFillActive: { backgroundColor: colors.yellow },
-  ovValue: {
-    width: 48,
-    textAlign: 'right',
-    fontSize: 13,
-    color: '#A9B0C0',
-    fontVariant: ['tabular-nums'],
-  },
 
-  // 공정 고르기(가로로 넘김)
-  procChips: { gap: 8, paddingRight: 4 },
-  procChip: {
-    height: 40,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    justifyContent: 'center',
-  },
-  procChipActive: { backgroundColor: colors.navy, borderColor: colors.navy },
-  procChipText: { fontSize: 15, fontWeight: '500', color: colors.textSub },
-  procChipTextActive: { fontWeight: '700', color: colors.white },
 
-  // 공정이 없는 현장
-  noProcIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-  noProcTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
-  noProcDesc: {
-    fontSize: 14,
-    color: colors.textSub,
-    textAlign: 'center',
-    lineHeight: 21,
-    marginTop: 8,
-    marginBottom: 20,
-  },
 
   // 첨부 파일
   fileTitleRow: {
@@ -1265,20 +1052,6 @@ const styles = StyleSheet.create({
   },
   fileAddText: { fontSize: 15, fontWeight: '600', color: colors.text },
 
-  // 세그먼트(예전 공정 선택 모양)
-  segment: {
-    flexDirection: 'row',
-    backgroundColor: colors.fill,
-    borderRadius: radius.md,
-    padding: 4,
-  },
-  segmentItem: {
-    flex: 1,
-    height: 38,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   segmentActive: {
     backgroundColor: colors.white,
     elevation: 1,
@@ -1287,8 +1060,6 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
   },
-  segmentText: { fontSize: 15, fontWeight: '500', color: colors.textSub },
-  segmentTextActive: { fontWeight: '700', color: colors.text },
 
   // 공정 진행률
   progressTop: {
@@ -1297,7 +1068,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
   },
-  progressValue: { fontSize: 30, fontWeight: '800', color: colors.text },
+  // 숫자를 눌러 바로 고칠 수 있다(밑줄로 입력칸임을 알림)
+  progressValue: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: colors.text,
+    padding: 0,
+    minWidth: 64,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+  },
   progressSub: { fontSize: 13, color: colors.textSub, marginTop: 2 },
   addedText: { fontWeight: '700', color: '#B7800A' },
   stepper: { flexDirection: 'row', gap: 8 },
@@ -1327,7 +1107,6 @@ const styles = StyleSheet.create({
   dotBase: { backgroundColor: colors.navy },
   dotToday: { backgroundColor: colors.yellow, marginLeft: 12 },
   legendText: { fontSize: 12, color: colors.textSub },
-  legendStep: { marginLeft: 'auto', fontSize: 12, color: colors.textMuted },
 
   // 사진
   photoRow: { gap: 8 },

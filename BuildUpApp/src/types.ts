@@ -34,35 +34,6 @@ export interface ManagerInput {
   linkSites: boolean; // 내가 만든 현장들의 본사 연결도 같이 바꾸기
 }
 
-// 공정은 현장마다 총관리자가 직접 만든다(고정 공정 없음). key는 서버가 정하는 구분값
-export type ProcessKey = string;
-
-export interface Process {
-  key: ProcessKey;
-  name: string;
-  weight: number; // 전체 진행률 계산 시 비중(상대값: 합으로 나눠서 쓴다)
-  progress: number; // 마지막으로 보고된 누적 진행률(%)
-  lastReportedAt: string | null; // ISO 날짜
-  // 공정 계획(관리자가 설정): 시작일~완료일 동안 0% → 100%로 진행한다고 본다
-  planStart: string | null; // 'YYYY-MM-DD'
-  planEnd: string | null; // 'YYYY-MM-DD'
-}
-
-// 공정 관리 저장: key가 없으면 새 공정, 목록 순서가 화면 순서
-export interface ProcessInput {
-  key?: string;
-  name: string;
-  weight: number;
-  planStart: string | null;
-  planEnd: string | null;
-}
-
-export interface ProcessPlanInput {
-  key: ProcessKey;
-  planStart: string | null;
-  planEnd: string | null;
-}
-
 export type Weather = 'sunny' | 'cloudy' | 'rain' | 'snow';
 
 // 작업일보 항목(모두 선택 입력)
@@ -80,8 +51,9 @@ export interface Site {
   ownerName: string;
   code: string | null; // 6자리 참여 코드(총관리자에게만 보임)
   memberCount: number;
-  overallProgress: number; // 공정 비중으로 계산한 전체 진행률(%)
-  processes: Process[];
+  overallProgress: number; // 현장 전체 진행률(%): 보고하는 사람이 판단해 입력한 값
+  workType: string | null; // 공사 종류(예: 실내건축 공사, 상·하수도 설비 공사)
+  lastReportedAt: string | null; // 마지막 보고(ISO 날짜)
   hqName: string | null; // 연결된 본사(없으면 null)
   latitude?: number | null; // 현장 위치(보고 위치 확인 기준)
   longitude?: number | null;
@@ -96,10 +68,9 @@ export interface SiteSummary {
   memberCount: number;
   overallProgress: number;
   isOwner: boolean; // 이 현장의 관리자(만든 사람). 아니면 작업자로 참여
+  workType: string | null; // 공사 종류
+  lastReportedAt: string | null; // 마지막 보고(ISO 날짜)
   hqName: string | null; // 연결된 본사(없으면 본사 없이 운영)
-  todayReported: number; // 오늘 보고된 공정 수
-  processCount: number;
-  plannedProgress: number | null; // 오늘 기준 계획 진행률(계획 미설정 시 null)
   pendingMaterials: number; // 승인·반려를 기다리는 자재 요청 수
   pendingReviews?: number; // 내가 검토할 수 있는 대기 보고 수
 }
@@ -107,6 +78,7 @@ export interface SiteSummary {
 export interface UpdateSiteInput {
   name: string;
   address: string;
+  workType?: string;
 }
 
 // 현장 참여자
@@ -133,6 +105,7 @@ export interface SitePreview {
 export interface CreateSiteInput {
   name: string;
   address: string;
+  workType: string; // 목록에서 고르거나 직접 입력
 }
 
 // 보고에 첨부한 문서(엑셀·PDF 등)
@@ -154,10 +127,13 @@ export interface Report {
   id: string;
   siteId: string;
   siteName?: string;
-  processKey: ProcessKey;
+  /** 예전 방식(공정 선택) 보고의 공정. 새 보고는 'work' */
+  processKey: string;
   processName: string;
-  from: number;
-  to: number;
+  /** 진행한 작업(직접 입력) */
+  work: string;
+  from: number; // 보고 전 현장 전체 진행률
+  to: number; // 보고 후(보고하는 사람이 판단해 입력)
   photoUris: string[];
   files: ReportFile[];
   memo: string;
@@ -211,8 +187,8 @@ export interface ReportCheck {
 
 export interface NewReport {
   siteId: string;
-  processKey: ProcessKey;
-  to: number;
+  work: string; // 진행한 작업
+  to: number; // 현장 전체 진행률(%)
   photoUris: string[];
   /** 사진마다 촬영 시각(ISO). 모르면 null */
   photoTakenAt?: (string | null)[];
@@ -246,7 +222,7 @@ export interface MaterialRequest {
   id: string;
   siteId: string;
   siteName: string;
-  processKey: ProcessKey | null; // 없으면 현장 공통
+  processKey: string | null; // 없으면 현장 공통
   processName: string | null;
   items: MaterialItem[];
   neededBy: string | null; // 'YYYY-MM-DD'
@@ -275,7 +251,7 @@ export interface HqInfo {
 
 export interface NewMaterialRequest {
   siteId: string;
-  processKey: ProcessKey | null;
+  processKey: string | null;
   items: MaterialItem[];
   neededBy: string | null;
   urgent: boolean;
@@ -283,19 +259,12 @@ export interface NewMaterialRequest {
 }
 
 // 보고 이력 나눠 불러오기(한 번에 30건씩)
-export interface ProcessCount {
-  key: ProcessKey;
-  name: string;
-  count: number;
-}
-
 export interface ReportPage {
   items: Report[];
   /** 다음 묶음을 부를 때 넘기는 값. 더 없으면 null */
   nextCursor: string | null;
-  /** 첫 묶음에만: 전체 보고 수·공정별 보고 수(필터 숫자) */
+  /** 첫 묶음에만: 전체 보고 수 */
   total: number | null;
-  processes: ProcessCount[] | null;
 }
 
 /** 현장별 마지막으로 본 시각(ISO). 한 번도 안 봤으면 null */

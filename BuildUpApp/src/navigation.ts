@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ProcessKey, Report, Role } from './types';
+import { Report, Role } from './types';
 
 // 로그인 전 화면
 export type AuthStackParamList = {
@@ -27,19 +27,16 @@ export type AppStackParamList = {
   Report: { siteId: string };
   History: { siteId: string; siteName: string };
   Progress: { siteId: string; siteName: string };
-  Plan: { siteId: string };
   ReportDetail: { report: Report };
   Members: { siteId: string; siteName: string; isOwner: boolean };
   Materials: { siteId: string; siteName: string };
   ManagerSetup: undefined; // 현장 관리자로 전환 / 보고 체계 변경
   // 본사 관계자 화면
   HqHome: undefined;
-  HqSite: { siteId: string; siteName: string };
   HqReports: { siteId?: string; siteName?: string }; // siteId가 없으면 전체 현장
   MaterialRequest: {
     siteId: string;
     siteName: string;
-    processKey?: ProcessKey; // 보고 화면에서 고른 공정을 기본값으로
   };
 };
 

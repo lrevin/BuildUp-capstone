@@ -23,6 +23,7 @@ import {
 import { errorMessage } from '../api/client';
 import { useDialog } from '../components/Dialog';
 import { AppHeader, BottomBar, Button, Field } from '../components/ui';
+import WorkTypePicker from '../components/WorkTypePicker';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
 
@@ -31,9 +32,14 @@ export default function SiteSettingsScreen({
   route,
 }: ScreenProps<'SiteSettings'>) {
   const { siteId } = route.params;
-  const [loaded, setLoaded] = useState<{ name: string; address: string }>();
+  const [loaded, setLoaded] = useState<{
+    name: string;
+    address: string;
+    workType: string;
+  }>();
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [workType, setWorkType] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [hqName, setHqName] = useState<string | null>(null);
@@ -46,7 +52,12 @@ export default function SiteSettingsScreen({
   useEffect(() => {
     fetchSite(siteId)
       .then(s => {
-        setLoaded({ name: s.name, address: s.address });
+        setLoaded({
+          name: s.name,
+          address: s.address,
+          workType: s.workType ?? '',
+        });
+        setWorkType(s.workType ?? '');
         setHqName(s.hqName);
         setPlace(
           s.latitude != null && s.longitude != null
@@ -64,7 +75,9 @@ export default function SiteSettingsScreen({
 
   const changed =
     !!loaded &&
-    (name.trim() !== loaded.name || address.trim() !== loaded.address);
+    (name.trim() !== loaded.name ||
+      address.trim() !== loaded.address ||
+      workType !== loaded.workType);
 
   const onSave = async () => {
     if (!name.trim() || !address.trim()) {
@@ -73,7 +86,7 @@ export default function SiteSettingsScreen({
     }
     setSaving(true);
     try {
-      await updateSite(siteId, { name, address });
+      await updateSite(siteId, { name, address, workType: workType || undefined });
       dialog.toast('현장 정보를 저장했어요', 'success');
       navigation.goBack();
     } catch (e) {
@@ -235,6 +248,7 @@ export default function SiteSettingsScreen({
             contentContainerStyle={styles.body}
             keyboardShouldPersistTaps="handled"
           >
+            <WorkTypePicker value={workType} onChange={setWorkType} />
             <Field label="현장명" value={name} onChangeText={setName} />
             <Field
               label="현장 주소"

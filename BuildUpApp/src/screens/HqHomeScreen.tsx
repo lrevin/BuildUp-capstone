@@ -28,7 +28,6 @@ import { ScreenProps } from '../navigation';
 import { colors, shadow } from '../theme';
 import { MaterialRequest, SiteSummary } from '../types';
 import { pct } from '../utils/format';
-import { scheduleStatus } from '../utils/plan';
 
 export const ORANGE = '#F08C00';
 
@@ -193,10 +192,6 @@ export function SiteTile({
   waiting: number;
   onPress: () => void;
 }) {
-  const behind =
-    site.plannedProgress !== null &&
-    scheduleStatus(site.overallProgress, site.plannedProgress).status ===
-      'behind';
   return (
     <Pressable
       onPress={onPress}
@@ -225,7 +220,12 @@ export function SiteTile({
         <Text style={styles.tileName} numberOfLines={2}>
           {site.name}
         </Text>
-        <Text style={[styles.tileProgress, behind && styles.tileBehind]}>
+        {site.workType ? (
+          <Text style={styles.tileType} numberOfLines={1}>
+            {site.workType}
+          </Text>
+        ) : null}
+        <Text style={styles.tileProgress}>
           진행률 {pct(site.overallProgress)}
         </Text>
       </View>
@@ -303,8 +303,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     lineHeight: 22,
   },
+  tileType: { fontSize: 12, color: colors.textMuted, marginTop: 3 },
   tileProgress: { fontSize: 13, fontWeight: '600', color: colors.textSub },
-  tileBehind: { color: colors.danger },
 
   empty: { alignItems: 'center', marginTop: 32, gap: 12 },
   emptyIcon: {

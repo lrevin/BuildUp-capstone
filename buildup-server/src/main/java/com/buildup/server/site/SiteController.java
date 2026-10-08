@@ -4,7 +4,6 @@ import com.buildup.server.auth.CurrentUser;
 import com.buildup.server.site.SiteDtos.CodeDto;
 import com.buildup.server.site.SiteDtos.JoinRequest;
 import com.buildup.server.site.SiteDtos.MemberDto;
-import com.buildup.server.site.SiteDtos.PlanItem;
 import com.buildup.server.site.SiteDtos.SiteDto;
 import com.buildup.server.site.SiteDtos.SitePreviewDto;
 import com.buildup.server.site.SiteDtos.SiteRequest;
@@ -70,12 +69,6 @@ public class SiteController {
         return new CodeDto(service.regenerateCode(CurrentUser.id(), siteId));
     }
 
-    @Operation(summary = "공정 계획(시작일·완료일) 저장")
-    @PutMapping("/{siteId}/plan")
-    public SiteDto updatePlan(@PathVariable Long siteId, @RequestBody List<PlanItem> plans) {
-        return service.updatePlan(CurrentUser.id(), siteId, plans);
-    }
-
     /** 총관리자: 본사 코드로 현장을 본사에 연결 / 해제 */
     @Operation(summary = "총관리자: 본사 코드로 현장을 본사에 연결 / 해제")
     @PutMapping("/{siteId}/hq")
@@ -87,13 +80,6 @@ public class SiteController {
     @DeleteMapping("/{siteId}/hq")
     public SiteDto unlinkCompany(@PathVariable Long siteId) {
         return service.unlinkCompany(CurrentUser.id(), siteId);
-    }
-
-    /** 총관리자: 공정 목록 저장(추가·수정·삭제·순서) */
-    @Operation(summary = "총관리자: 공정 목록 저장(추가·수정·삭제·순서)")
-    @PutMapping("/{siteId}/processes")
-    public SiteDto updateProcesses(@PathVariable Long siteId, @RequestBody List<SiteDtos.ProcessInput> processes) {
-        return service.updateProcesses(CurrentUser.id(), siteId, processes);
     }
 
     /** 현장 총관리자: 현장 위치 저장 { latitude, longitude } */

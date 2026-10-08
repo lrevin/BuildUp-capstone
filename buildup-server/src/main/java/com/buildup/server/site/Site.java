@@ -58,11 +58,22 @@ public class Site {
     /** 현장 위치를 저장한 시각(이후에 올라온 보고만 위치를 확인한다) */
     private Instant locationUpdatedAt;
 
+    /** 공사 종류(예: 실내건축 공사, 상·하수도 설비 공사, 직접 입력한 이름) */
+    @Column(length = 50)
+    private String workType;
+
+    /** 현장 전체 진행률(%): 보고하는 사람이 직접 판단해 입력한 값. null이면 예전 방식(공정 비중) 데이터 */
+    private Double progress;
+
+    /** 마지막 보고 시각 */
+    private Instant lastReportedAt;
+
     /** 연결된 본사(없으면 본사 보고 없이 현장 안에서만 운영) */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id")
     private Company company;
 
+    /** 예전 방식(공정별 진행률) 데이터. 새 방식으로 바꾼 뒤에는 쓰지 않는다(SiteProgressMigration) */
     @OneToMany(mappedBy = "site", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sortOrder ASC")
     private List<SiteProcess> processes = new ArrayList<>();
@@ -71,8 +82,13 @@ public class Site {
     @OrderBy("joinedAt ASC")
     private List<SiteMember> members = new ArrayList<>();
 
-    /** 공정 비중을 반영한 전체 진행률(%). 비중은 상대값(합이 1이 아니어도 됨), 공정이 없으면 0 */
+    /** 현장 전체 진행률(%). 보고할 때 입력한 값 그대로 */
     public double overallProgress() {
+        return progress != null ? progress : legacyProgress();
+    }
+
+    /** 예전 방식: 공정 비중을 반영한 진행률(바꾸기 전 데이터에서만 쓴다) */
+    public double legacyProgress() {
         double total = processes.stream().mapToDouble(SiteProcess::getWeight).sum();
         if (total <= 0) {
             return 0;

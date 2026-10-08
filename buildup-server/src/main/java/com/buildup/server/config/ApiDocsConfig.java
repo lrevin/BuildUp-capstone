@@ -23,7 +23,7 @@ public class ApiDocsConfig {
                 .info(new Info()
                         .title("Build Up API")
                         .version("1.0")
-                        .description("건설 현장 진척 보고 앱 Build Up의 서버 API.\n"
+                        .description("공사 현장 관리 앱 Build Up의 서버 API(건설·인테리어 공사).\n"
                                 + "로그인(POST /api/auth/login) 응답의 token을 Authorize에 넣고 시험한다.\n"
                                 + "테스트 계정(데모 데이터): admin@buildup.kr / worker@buildup.kr / hq@buildup.kr, 비밀번호 1234"))
                 .components(new Components().addSecuritySchemes(scheme, new SecurityScheme()

@@ -2,11 +2,12 @@
 import { useState } from 'react';
 import { errorMessage, reviewReport } from '../api';
 import type { PhotoInfo, Report } from '../types';
-import { fileSize, formatDateTime, formatMDHM, WEATHER_LABEL } from '../utils/format';
+import { fileSize, formatDateTime, formatMDHM, reportWork, WEATHER_LABEL } from '../utils/format';
 import { Lightbox, Modal, REVIEW_META, ReviewBadge } from './ui';
 
 const QUICK_REASONS = [
   '사진이 작업 내용을 잘 보여주지 않아요',
+  '진행한 작업을 더 자세히 적어 주세요',
   '진행률 근거를 메모에 적어 주세요',
   '촬영 시각·위치를 확인할 수 없어요',
   '작업일보(인원·장비)를 채워 주세요',
@@ -34,6 +35,8 @@ export default function ReportModal({
   const [error, setError] = useState<string | null>(null);
 
   const r = current;
+  const work = reportWork(r);
+  const workTitle = work.length > 40 ? `${work.slice(0, 40)}…` : work;
   const photos = reportPhotos(r);
   const review = r.review ?? { status: 'pending' as const, comment: null, reviewer: null, reviewedAt: null };
   const wl = r.workLog;
@@ -65,7 +68,7 @@ export default function ReportModal({
       onClose={onClose}
       title={
         <div className="rm-title">
-          <span className="rm-process">{r.processName}</span>
+          <span className="rm-work">{workTitle}</span>
           <ReviewBadge report={r} />
           {r.siteName && <span className="muted small">{r.siteName}</span>}
         </div>
@@ -82,9 +85,14 @@ export default function ReportModal({
             {r.updatedAt && <span className="muted small">(메모 수정 {formatDateTime(r.updatedAt)})</span>}
           </div>
 
+          <section className="rm-section">
+            <h4>진행한 작업</h4>
+            <p className="rm-work-body">{work}</p>
+          </section>
+
           <div className="rm-progress">
             <div>
-              <div className="label">진행률</div>
+              <div className="label">현장 전체 진행률</div>
               <div className="rm-progress-val">
                 {r.from.toFixed(1)}% <span className="arrow">→</span> <b>{r.to.toFixed(1)}%</b>
                 <span className="delta">+{(r.to - r.from).toFixed(1)}%p</span>
@@ -132,7 +140,7 @@ export default function ReportModal({
                   const cap = p.takenAt ? `촬영 ${formatMDHM(p.takenAt)}` : '촬영 시각 없음';
                   return (
                     <button key={i} className="photo" onClick={() => setZoom({ src: p.url, caption: cap })}>
-                      <img src={p.url} alt={`${r.processName} 사진 ${i + 1}`} loading="lazy" />
+                      <img src={p.url} alt={`${workTitle} 사진 ${i + 1}`} loading="lazy" />
                       <span className="photo-cap">{cap}</span>
                     </button>
                   );

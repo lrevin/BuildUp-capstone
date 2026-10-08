@@ -60,17 +60,20 @@ export default function ProgressRing({
           strokeWidth={stroke}
           fill="none"
         />
-        <Circle
-          cx={c}
-          cy={c}
-          r={r}
-          stroke={color}
-          strokeWidth={stroke}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={`${(len * v) / 100} ${len}`}
-          transform={`rotate(-90 ${c} ${c})`}
-        />
+        {/* 0%면 둥근 끝 때문에 점이 하나 보이므로 그리지 않는다 */}
+        {v > 0 ? (
+          <Circle
+            cx={c}
+            cy={c}
+            r={r}
+            stroke={color}
+            strokeWidth={stroke}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={`${(len * v) / 100} ${len}`}
+            transform={`rotate(-90 ${c} ${c})`}
+          />
+        ) : null}
         {tick ? (
           <Line
             {...tick}

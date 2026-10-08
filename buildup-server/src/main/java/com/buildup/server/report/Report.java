@@ -49,7 +49,15 @@ public class Report {
     @Column(nullable = false, length = 30)
     private String processName;
 
-    /** 보고 전 진행률 → 보고 후 진행률 */
+    /** 진행한 작업(보고하는 사람이 직접 입력). 예전 보고는 null → processName을 쓴다 */
+    @Column(length = 100)
+    private String work;
+
+    public String workText() {
+        return work != null && !work.isBlank() ? work : processName;
+    }
+
+    /** 보고 전 현장 전체 진행률 → 보고 후 진행률(보고하는 사람이 판단해 입력) */
     @Column(name = "from_progress", nullable = false)
     private double fromProgress;
 

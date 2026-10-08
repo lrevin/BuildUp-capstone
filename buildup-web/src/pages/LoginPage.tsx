@@ -40,9 +40,9 @@ export default function LoginPage() {
       <div className="login-hero">
         <Logo size="lg" />
         <h1>현장의 오늘을 본사에서 한눈에</h1>
-        <p>공정별 진행률, 계획 대비 지연, 사진 보고와 자재 요청까지 — 모든 현장을 한 화면에서 검토하세요.</p>
+        <p>현장 전체 진행률, 진행한 작업, 사진 보고와 자재 요청까지 — 모든 현장을 한 화면에서 검토하세요.</p>
         <ul className="login-points">
-          <li>현장별 계획 대비 진행률과 지연 현장 알림</li>
+          <li>공사 종류별 현장 현황과 현장 전체 진행률 추이</li>
           <li>사진·위치 확인이 붙은 진행 보고 검토</li>
           <li>자재 요청 승인과 작업일보 엑셀 내려받기</li>
         </ul>

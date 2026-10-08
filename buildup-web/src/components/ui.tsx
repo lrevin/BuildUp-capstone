@@ -1,7 +1,6 @@
 // 작은 공통 화면 조각
 import { useEffect, type ReactNode } from 'react';
 import type { MaterialStatus, Report, ReviewStatus } from '../types';
-import { scheduleStatus, STATUS_META, statusText } from '../utils/plan';
 
 export const REVIEW_META: Record<ReviewStatus, { label: string; cls: string }> = {
   pending: { label: '검토 대기', cls: 'badge-blue' },
@@ -31,36 +30,12 @@ export function CheckIcon({ report }: { report: Report }) {
   );
 }
 
-// 진행률 막대 + 계획 진행률 표시선
-export function ProgressBar({
-  value,
-  planned,
-  size = 'md',
-}: {
-  value: number;
-  planned?: number | null;
-  size?: 'sm' | 'md' | 'lg';
-}) {
-  const behind = planned != null && scheduleStatus(value, planned).status === 'behind';
+// 진행률 막대(현장 전체 진행률)
+export function ProgressBar({ value, size = 'md' }: { value: number; size?: 'sm' | 'md' | 'lg' }) {
   return (
-    <div className={`pbar pbar-${size}`} role="img" aria-label={`진행률 ${value.toFixed(1)}%${planned != null ? `, 계획 ${planned.toFixed(1)}%` : ''}`}>
-      <div className={`pbar-fill ${behind ? 'is-behind' : ''}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
-      {planned != null && (
-        <div className="pbar-plan" style={{ left: `${Math.min(100, Math.max(0, planned))}%` }} title={`계획 ${planned.toFixed(1)}%`} />
-      )}
+    <div className={`pbar pbar-${size}`} role="img" aria-label={`진행률 ${value.toFixed(1)}%`}>
+      <div className="pbar-fill" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
     </div>
-  );
-}
-
-export function ScheduleBadge({ actual, planned }: { actual: number; planned: number | null | undefined }) {
-  if (planned == null) return <span className="badge badge-gray">계획 미설정</span>;
-  const { status, diff } = scheduleStatus(actual, planned);
-  const meta = STATUS_META[status];
-  if (status === 'behind') return <span className="badge badge-red">지연 {Math.abs(diff).toFixed(1)}%p</span>;
-  return (
-    <span className="badge" style={{ color: meta.color, background: meta.bg }}>
-      {statusText(diff, status)}
-    </span>
   );
 }
 

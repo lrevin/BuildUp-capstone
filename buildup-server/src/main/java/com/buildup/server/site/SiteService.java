@@ -11,8 +11,6 @@ import com.buildup.server.report.Report;
 import com.buildup.server.report.ReportRepository;
 import com.buildup.server.report.FileStorage;
 import com.buildup.server.site.SiteDtos.MemberDto;
-import com.buildup.server.site.SiteDtos.PlanItem;
-import com.buildup.server.site.SiteDtos.ProcessDto;
 import com.buildup.server.site.SiteDtos.SiteDto;
 import com.buildup.server.site.SiteDtos.SitePreviewDto;
 import com.buildup.server.site.SiteDtos.SiteRequest;
@@ -22,26 +20,18 @@ import com.buildup.server.user.User;
 import com.buildup.server.user.UserRepository;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 현장·참여 코드·참여자·공정 계획 (권한 규칙은 앱 src/data/dummy.ts와 같다) */
+/** 현장·공사 종류·참여 코드·참여자 (권한 규칙은 앱 src/data/dummy.ts와 같다) */
 @Service
 @RequiredArgsConstructor
 public class SiteService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
-
-    /** 새 현장의 기본 공정: [키, 이름, 비중] */
-    public static final List<Object[]> DEFAULT_PROCESSES = List.of(
-            new Object[] {"frame", "골조", 0.4},
-            new Object[] {"electric", "전기", 0.2},
-            new Object[] {"plumbing", "설비", 0.2},
-            new Object[] {"finish", "마감", 0.2});
 
     private final SiteRepository sites;
     private final UserRepository users;
@@ -103,13 +93,6 @@ public class SiteService {
         return code;
     }
 
-    public static void addDefaultProcesses(Site site) {
-        for (int i = 0; i < DEFAULT_PROCESSES.size(); i++) {
-            Object[] d = DEFAULT_PROCESSES.get(i);
-            site.getProcesses().add(new SiteProcess(site, (String) d[0], (String) d[1], (double) d[2], i));
-        }
-    }
-
     // ---- 변환 ----
 
     SiteDto toDto(Site s, Long userId) {
@@ -122,7 +105,8 @@ public class SiteService {
                 s.isOwner(userId) ? s.getCode() : null,
                 s.getMembers().size(),
                 s.overallProgress(),
-                s.getProcesses().stream().map(ProcessDto::of).toList(),
+                s.getWorkType(),
+                Times.iso(s.getLastReportedAt()),
                 s.getCompany() == null ? null : s.getCompany().getName(),
                 s.getLatitude(),
                 s.getLongitude());
@@ -134,9 +118,6 @@ public class SiteService {
 
     /** 본사 화면에서도 같은 요약을 쓴다(대기 자재 = 승인·반려를 기다리는 요청) */
     public SiteSummaryDto toSummary(Site s, Long userId, boolean forHq) {
-        int today = (int) s.getProcesses().stream()
-                .filter(p -> Times.isToday(p.getLastReportedAt()))
-                .count();
         return new SiteSummaryDto(
                 String.valueOf(s.getId()),
                 s.getName(),
@@ -145,9 +126,8 @@ public class SiteService {
                 s.getMembers().size(),
                 s.overallProgress(),
                 s.isOwner(userId),
-                today,
-                s.getProcesses().size(),
-                PlanCalc.overallPlanned(s.getProcesses(), Instant.now()),
+                s.getWorkType(),
+                Times.iso(s.getLastReportedAt()),
                 s.getCompany() == null ? null : s.getCompany().getName(),
                 (int) materials.countBySiteIdAndStatus(s.getId(), MaterialRequest.REQUESTED),
                 pendingReviews(s, userId, forHq));
@@ -203,9 +183,10 @@ public class SiteService {
         site.setAddress(req.address().trim());
         site.setOwner(owner);
         site.setCode(newCode());
+        site.setWorkType(workType(req.workType()));
+        site.setProgress(0.0);
         // 보고하는 본사가 있으면 새 현장도 그 본사에 연결(없으면 최고 책임자 현장)
         site.setCompany(owner.getManagerCompany());
-        // 공정은 총관리자가 '공정 관리'에서 직접 만든다(고정 공정 없음)
         site.getMembers().add(new SiteMember(site, owner, Instant.now()));
         sites.save(site);
         return toDto(site, userId);
@@ -216,7 +197,19 @@ public class SiteService {
         Site site = ownedSite(userId, siteId, "현장 정보를 수정");
         site.setName(req.name().trim());
         site.setAddress(req.address().trim());
+        if (req.workType() != null) {
+            site.setWorkType(workType(req.workType()));
+        }
         return toDto(site, userId);
+    }
+
+    /** 공사 종류: 목록에서 고르거나 직접 입력(필수) */
+    private static String workType(String value) {
+        String v = value == null ? "" : value.trim();
+        if (v.isEmpty()) {
+            throw ApiException.badRequest("공사 종류를 골라 주세요.");
+        }
+        return v;
     }
 
     @Transactional
@@ -234,29 +227,6 @@ public class SiteService {
         Site site = ownedSite(userId, siteId, "코드를 재발급");
         site.setCode(newCode());
         return site.getCode();
-    }
-
-    @Transactional
-    public SiteDto updatePlan(Long userId, Long siteId, List<PlanItem> plans) {
-        Site site = ownedSite(userId, siteId, "공정 계획을 수정");
-        for (PlanItem plan : plans) {
-            LocalDate start = Times.parseYmd(plan.planStart());
-            LocalDate end = Times.parseYmd(plan.planEnd());
-            if ((start == null) != (end == null)) {
-                throw ApiException.badRequest("시작일과 완료일을 모두 정해 주세요.");
-            }
-            if (start != null && start.isAfter(end)) {
-                throw ApiException.badRequest("완료일은 시작일보다 늦어야 합니다.");
-            }
-            site.getProcesses().stream()
-                    .filter(p -> p.getKey().equals(plan.key()))
-                    .findFirst()
-                    .ifPresent(p -> {
-                        p.setPlanStart(start);
-                        p.setPlanEnd(end);
-                    });
-        }
-        return toDto(site, userId);
     }
 
     // ---- 본사 연결 ----
@@ -283,90 +253,6 @@ public class SiteService {
         Site site = ownedSite(userId, siteId, "본사 연결을 해제");
         site.setCompany(null);
         return toDto(site, userId);
-    }
-
-    // ---- 공정 관리 ----
-
-    public static final int MAX_PROCESSES = 30;
-
-    /** 총관리자: 공정 목록을 통째로 저장(추가·이름 변경·비중·계획·순서·삭제) */
-    @Transactional
-    public SiteDto updateProcesses(Long userId, Long siteId, List<SiteDtos.ProcessInput> inputs) {
-        Site site = ownedSite(userId, siteId, "공정을 수정");
-        if (inputs == null) {
-            inputs = List.of();
-        }
-        if (inputs.size() > MAX_PROCESSES) {
-            throw ApiException.badRequest("공정은 " + MAX_PROCESSES + "개까지 만들 수 있어요.");
-        }
-        java.util.Set<String> names = new java.util.HashSet<>();
-        java.util.Set<String> keptKeys = new java.util.HashSet<>();
-        for (SiteDtos.ProcessInput in : inputs) {
-            String name = in.name() == null ? "" : in.name().trim();
-            if (name.isEmpty()) {
-                throw ApiException.badRequest("공정 이름을 입력해 주세요.");
-            }
-            if (name.length() > 30) {
-                throw ApiException.badRequest("공정 이름은 30자까지 쓸 수 있어요.");
-            }
-            if (!names.add(name)) {
-                throw ApiException.badRequest("'" + name + "' 공정이 두 번 들어 있어요.");
-            }
-            double w = in.weight() == null ? 1 : in.weight();
-            if (w <= 0 || w > 1000) {
-                throw ApiException.badRequest("'" + name + "' 공정의 비중을 확인해 주세요.");
-            }
-            LocalDate start = Times.parseYmd(in.planStart());
-            LocalDate end = Times.parseYmd(in.planEnd());
-            if ((start == null) != (end == null)) {
-                throw ApiException.badRequest("'" + name + "' 공정의 시작일과 완료일을 모두 정해 주세요.");
-            }
-            if (start != null && start.isAfter(end)) {
-                throw ApiException.badRequest("'" + name + "' 공정의 완료일은 시작일보다 늦어야 합니다.");
-            }
-            if (in.key() != null && !in.key().isBlank()) {
-                keptKeys.add(in.key());
-            }
-        }
-        // 빠진 공정 삭제: 보고가 있는 공정은 기록을 지키기 위해 막는다
-        for (SiteProcess p : site.getProcesses()) {
-            if (!keptKeys.contains(p.getKey()) && reports.existsBySiteIdAndProcessKey(siteId, p.getKey())) {
-                throw ApiException.conflict("'" + p.getName() + "' 공정에는 보고가 있어 삭제할 수 없어요. 이름은 바꿀 수 있어요.");
-            }
-        }
-        site.getProcesses().removeIf(p -> !keptKeys.contains(p.getKey()));
-
-        for (int i = 0; i < inputs.size(); i++) {
-            SiteDtos.ProcessInput in = inputs.get(i);
-            SiteProcess p = in.key() == null ? null : site.getProcesses().stream()
-                    .filter(x -> x.getKey().equals(in.key()))
-                    .findFirst()
-                    .orElse(null);
-            if (p == null) {
-                p = new SiteProcess(site, newProcessKey(site), in.name().trim(), 1, i);
-                site.getProcesses().add(p);
-            }
-            p.setName(in.name().trim());
-            p.setWeight(in.weight() == null ? 1 : in.weight());
-            p.setPlanStart(Times.parseYmd(in.planStart()));
-            p.setPlanEnd(Times.parseYmd(in.planEnd()));
-            p.setSortOrder(i);
-        }
-        site.getProcesses().sort(Comparator.comparingInt(SiteProcess::getSortOrder));
-        sites.flush();
-        return toDto(site, userId);
-    }
-
-    private static String newProcessKey(Site site) {
-        String key;
-        do {
-            key = "p" + Integer.toHexString(RANDOM.nextInt(0x10000000));
-        } while (hasKey(site, key));
-        return key;
-    }
-
-    private static boolean hasKey(Site site, String key) {
-        return site.getProcesses().stream().anyMatch(p -> p.getKey().equals(key));
     }
 
     // ---- 코드 참여 ----

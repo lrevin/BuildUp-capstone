@@ -112,14 +112,13 @@ export async function getSiteReports(id: string) {
 }
 export async function getSiteReportPage(
   id: string,
-  opts: { cursor?: string | null; size?: number; processKey?: string | null } = {},
+  opts: { cursor?: string | null; size?: number } = {},
 ) {
   return (
     await api.get<ReportPage>(`/sites/${id}/reports/page`, {
       params: {
         cursor: opts.cursor || undefined,
         size: opts.size ?? 30,
-        processKey: opts.processKey || undefined,
       },
     })
   ).data;

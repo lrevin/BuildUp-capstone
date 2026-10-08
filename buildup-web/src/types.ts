@@ -18,17 +18,8 @@ export interface AuthResponse {
   token: string;
 }
 
+// 예전 데이터의 공정 키(새 보고는 'work'). 화면에는 보고의 work(진행한 작업)를 보여 준다.
 export type ProcessKey = string;
-
-export interface Process {
-  key: ProcessKey;
-  name: string;
-  weight: number;
-  progress: number;
-  lastReportedAt: string | null;
-  planStart: string | null;
-  planEnd: string | null;
-}
 
 export type Weather = 'sunny' | 'cloudy' | 'rain' | 'snow';
 
@@ -46,8 +37,9 @@ export interface Site {
   ownerName: string;
   code: string | null;
   memberCount: number;
-  overallProgress: number;
-  processes: Process[];
+  overallProgress: number; // 현장 전체 진행률(보고자가 보고마다 직접 입력)
+  workType: string; // 공사 종류
+  lastReportedAt: string | null;
   hqName: string | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -61,10 +53,9 @@ export interface SiteSummary {
   memberCount: number;
   overallProgress: number;
   isOwner: boolean;
+  workType: string;
+  lastReportedAt: string | null;
   hqName: string | null;
-  todayReported: number;
-  processCount: number;
-  plannedProgress: number | null;
   pendingMaterials: number;
   pendingReviews?: number;
 }
@@ -106,10 +97,11 @@ export interface Report {
   id: string;
   siteId: string;
   siteName?: string;
-  processKey: ProcessKey;
-  processName: string;
-  from: number;
-  to: number;
+  processKey: ProcessKey; // 예전 데이터 호환용
+  processName: string; // 예전 데이터 호환용(새 보고는 work 를 줄인 글)
+  work: string; // 진행한 작업
+  from: number; // 이 보고 전 현장 전체 진행률
+  to: number; // 이 보고 후 현장 전체 진행률
   photoUris: string[];
   photos?: PhotoInfo[];
   files: ReportFile[];
@@ -127,17 +119,10 @@ export interface Report {
   canReview?: boolean;
 }
 
-export interface ProcessCount {
-  key: ProcessKey;
-  name: string;
-  count: number;
-}
-
 export interface ReportPage {
   items: Report[];
   nextCursor: string | null;
-  total: number | null;
-  processes: ProcessCount[] | null;
+  total: number | null; // 첫 페이지에만 들어 있음
 }
 
 export type MaterialStatus = 'requested' | 'approved' | 'rejected';

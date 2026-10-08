@@ -21,7 +21,7 @@ import { colors, radius } from '../theme';
 interface Props {
   visible: boolean;
   siteName: string;
-  processName: string;
+  processName: string; // 진행한 작업
   from: number;
   to: number;
   photoCount: number;
@@ -66,9 +66,10 @@ export default function SubmitSheet(props: Props) {
         {/* 진행률 변화 요약 */}
         <View style={styles.hero}>
           <View style={styles.heroTop}>
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>{props.processName}</Text>
-            </View>
+            {/* 진행한 작업 */}
+            <Text style={styles.workText} numberOfLines={3}>
+              {props.processName}
+            </Text>
             <View style={[styles.diffChip, diff <= 0 && styles.diffZero]}>
               <Text style={[styles.diffText, diff <= 0 && styles.diffZeroText]}>
                 +{diff.toFixed(1)}%p
@@ -164,6 +165,7 @@ export default function SubmitSheet(props: Props) {
 }
 
 const styles = StyleSheet.create({
+  workText: { flex: 1, fontSize: 16, fontWeight: '700', color: colors.text, lineHeight: 23 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
     backgroundColor: colors.white,
@@ -192,16 +194,10 @@ const styles = StyleSheet.create({
   },
   heroTop: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+    gap: 10,
   },
-  chip: {
-    backgroundColor: colors.white,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  chipText: { fontSize: 12, fontWeight: '700', color: colors.text },
   diffChip: {
     backgroundColor: colors.yellowSoft,
     borderRadius: 6,

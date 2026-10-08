@@ -30,7 +30,7 @@ public class Notices {
         Site site = r.getSite();
         Set<Long> to = managers(site);
         to.remove(r.getAuthor().getId());
-        String body = r.getAuthor().getName() + " · " + r.getProcessName() + " "
+        String body = r.getAuthor().getName() + " · " + r.workText() + " · 진행률 "
                 + pct(r.getFromProgress()) + " → " + pct(r.getToProgress());
         push.notifyUsers(to, "새 현장 보고 · " + site.getName(), body, data("report", site));
     }
@@ -38,7 +38,7 @@ public class Notices {
     /** 승인·보완 요청 → 보고한 사람 */
     public void reportReviewed(Report r) {
         boolean ok = Report.APPROVED.equals(r.status());
-        String body = r.getProcessName() + " " + pct(r.getToProgress())
+        String body = r.workText() + " " + pct(r.getToProgress())
                 + (r.getReviewComment() == null ? "" : " · " + r.getReviewComment());
         push.notifyUsers(
                 List.of(r.getAuthor().getId()),
@@ -57,7 +57,7 @@ public class Notices {
         }
         to.remove(r.getAuthor().getId());
         push.notifyUsers(to, "보완 완료 · " + r.getSite().getName(),
-                r.getAuthor().getName() + " · " + r.getProcessName() + " 보고를 보완했어요", data("report", r.getSite()));
+                r.getAuthor().getName() + " · " + r.workText() + " 보고를 보완했어요", data("report", r.getSite()));
     }
 
     public void materialRequested(MaterialRequest m) {

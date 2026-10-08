@@ -17,8 +17,6 @@ import {
   Member,
   NewMaterialRequest,
   NewReport,
-  ProcessInput,
-  ProcessPlanInput,
   Report,
   ReportPage,
   SeenInput,
@@ -204,30 +202,6 @@ export async function updateSite(
   return (await api.patch<Site>(`/sites/${siteId}`, input)).data;
 }
 
-// 총관리자: 공정 계획(시작일·완료일) 저장
-export async function updatePlan(
-  siteId: string,
-  plans: ProcessPlanInput[],
-): Promise<Site> {
-  if (config.useDummy) {
-    return dummyWrite(() => dummyDb.updatePlan(requireUserId(), siteId, plans));
-  }
-  return (await api.put<Site>(`/sites/${siteId}/plan`, plans)).data;
-}
-
-// 총관리자: 공정 관리(추가·이름·비중·계획·순서·삭제를 한 번에 저장)
-export async function updateProcesses(
-  siteId: string,
-  processes: ProcessInput[],
-): Promise<Site> {
-  if (config.useDummy) {
-    return dummyWrite(() =>
-      dummyDb.updateProcesses(requireUserId(), siteId, processes),
-    );
-  }
-  return (await api.put<Site>(`/sites/${siteId}/processes`, processes)).data;
-}
-
 // 총관리자: 현장 삭제(보고 이력도 함께 삭제)
 export async function deleteSite(siteId: string) {
   if (config.useDummy) {
@@ -298,7 +272,7 @@ export async function fetchReports(siteId: string): Promise<Report[]> {
 /** 보고 이력 한 묶음(30건). cursor는 앞 묶음의 nextCursor, 첫 묶음은 null */
 export async function fetchReportPage(
   siteId: string,
-  opts: { cursor?: string | null; processKey?: string | null; size?: number } = {},
+  opts: { cursor?: string | null; size?: number } = {},
 ): Promise<ReportPage> {
   if (config.useDummy) {
     return dummyRead(() =>
@@ -308,9 +282,6 @@ export async function fetchReportPage(
   const params: Record<string, string | number> = { size: opts.size ?? 30 };
   if (opts.cursor) {
     params.cursor = opts.cursor;
-  }
-  if (opts.processKey) {
-    params.processKey = opts.processKey;
   }
   return (await api.get<ReportPage>(`/sites/${siteId}/reports/page`, { params }))
     .data;
@@ -356,7 +327,7 @@ export async function submitReport(input: NewReport): Promise<Report> {
   }
   // 서버 연동 시: 사진은 multipart/form-data로 함께 업로드
   const form = new FormData();
-  form.append('processKey', input.processKey);
+  form.append('work', input.work);
   form.append('to', String(input.to));
   form.append('memo', input.memo);
   form.append('workLog', JSON.stringify(input.workLog));

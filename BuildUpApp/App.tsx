@@ -16,14 +16,12 @@ import CreateSiteScreen from './src/screens/CreateSiteScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import HqHomeScreen from './src/screens/HqHomeScreen';
 import HqReportsScreen from './src/screens/HqReportsScreen';
-import HqSiteScreen from './src/screens/HqSiteScreen';
 import JoinSiteScreen from './src/screens/JoinSiteScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import ManagerSetupScreen from './src/screens/ManagerSetupScreen';
 import MaterialRequestScreen from './src/screens/MaterialRequestScreen';
 import MaterialsScreen from './src/screens/MaterialsScreen';
 import MembersScreen from './src/screens/MembersScreen';
-import PlanScreen from './src/screens/PlanScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ProgressScreen from './src/screens/ProgressScreen';
 import ReportDetailScreen from './src/screens/ReportDetailScreen';
@@ -81,7 +79,6 @@ function RootNavigator() {
         // 본사 관계자: 현장 보고·자재 요청을 받는 화면
         <>
           <Stack.Screen name="HqHome" component={HqHomeScreen} />
-          <Stack.Screen name="HqSite" component={HqSiteScreen} />
           <Stack.Screen name="HqReports" component={HqReportsScreen} />
           <Stack.Screen name="Progress" component={ProgressScreen} />
           <Stack.Screen name="History" component={HistoryScreen} />
@@ -102,7 +99,6 @@ function RootNavigator() {
           <Stack.Screen name="Report" component={ReportScreen} />
           <Stack.Screen name="History" component={HistoryScreen} />
           <Stack.Screen name="Progress" component={ProgressScreen} />
-          <Stack.Screen name="Plan" component={PlanScreen} />
           <Stack.Screen name="ReportDetail" component={ReportDetailScreen} />
           <Stack.Screen name="Members" component={MembersScreen} />
           <Stack.Screen name="Materials" component={MaterialsScreen} />

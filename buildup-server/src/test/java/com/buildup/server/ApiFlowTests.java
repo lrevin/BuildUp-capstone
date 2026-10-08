@@ -170,6 +170,42 @@ class ApiFlowTests {
         send("PUT", "/api/sites/" + siteId + "/location", admin, java.util.Collections.singletonMap("latitude", null));
     }
 
+    @Test
+    void 공사_종류로_현장을_만들고_진행률을_직접_입력() throws Exception {
+        Res noType = send("POST", "/api/sites", admin, Map.of("name", "시험 현장", "address", "원주"));
+        assertThat(noType.status()).isEqualTo(400);
+        Res made = send("POST", "/api/sites", admin, Map.of("name", "시험 욕실 공사", "address", "원주시", "workType", "욕실 리모델링"));
+        assertThat(made.status()).isEqualTo(200);
+        assertThat(made.body().get("workType")).isEqualTo("욕실 리모델링");
+        assertThat(((Number) made.body().get("overallProgress")).doubleValue()).isEqualTo(0.0);
+        String id = made.body().get("id").toString();
+
+        // 진행한 작업은 꼭 써야 하고, 진행률은 지금 값보다 낮출 수 없다
+        assertThat(sendForm(admin, id, Map.of("work", "", "to", "10")).status()).isEqualTo(400);
+        Res ok = sendForm(admin, id, Map.of("work", "타일 철거", "to", "15"));
+        assertThat(ok.status()).isEqualTo(200);
+        assertThat(ok.body().get("work")).isEqualTo("타일 철거");
+        assertThat(sendForm(admin, id, Map.of("work", "방수", "to", "10")).status()).isEqualTo(400);
+        assertThat(((Number) send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).doubleValue())
+                .isEqualTo(15.0);
+        // 가장 최근 보고를 지우면 진행률이 되돌아간다
+        send("DELETE", "/api/reports/" + ok.body().get("id"), admin, null);
+        assertThat(((Number) send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).doubleValue())
+                .isEqualTo(0.0);
+        send("DELETE", "/api/sites/" + id, admin, null);
+    }
+
+    @Test
+    void 예전_공정_데이터를_현장_진행률로_바꿨다() throws Exception {
+        Map<String, Object> site = send("GET", "/api/sites/" + firstSiteId(admin), admin, null).body();
+        assertThat(site.get("workType")).isEqualTo("건축 신축 공사");
+        double overall = ((Number) site.get("overallProgress")).doubleValue();
+        Map<String, Object> latest = items(send("GET", "/api/sites/" + site.get("id") + "/reports/page?size=1", admin, null)).get(0);
+        // 가장 최근 보고 뒤 진행률 = 현장 진행률, 진행한 작업이 채워져 있다
+        assertThat(((Number) latest.get("to")).doubleValue()).isEqualTo(overall);
+        assertThat(latest.get("work").toString()).isNotBlank();
+    }
+
     // ---------- 나눠 불러오기 ----------
 
     @Test
@@ -256,16 +292,13 @@ class ApiFlowTests {
         return submitReport(token, siteId, null, null);
     }
 
-    /** 마감(finish) 공정을 현재 진행률 그대로 보고(진행률을 바꾸지 않음) */
+    /** 진행한 작업 + 현장 전체 진행률(지금 값 그대로 → 진행률을 바꾸지 않음) */
     private String submitReport(String token, String siteId, String lat, String lng) throws Exception {
         Map<String, Object> site = send("GET", "/api/sites/" + siteId, token, null).body();
-        @SuppressWarnings("unchecked")
-        Map<String, Object> finish = ((List<Map<String, Object>>) site.get("processes")).stream()
-                .filter(p -> "finish".equals(p.get("key"))).findFirst().orElseThrow();
         String boundary = UUID.randomUUID().toString();
         ByteArrayOutputStream body = new ByteArrayOutputStream();
-        field(body, boundary, "processKey", "finish");
-        field(body, boundary, "to", finish.get("progress").toString());
+        field(body, boundary, "work", "자동 테스트 작업");
+        field(body, boundary, "to", site.get("overallProgress").toString());
         field(body, boundary, "memo", "자동 테스트");
         if (lat != null) {
             field(body, boundary, "latitude", lat);
@@ -280,6 +313,25 @@ class ApiFlowTests {
         HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
         return JSON.readValue(res.body(), Map.class).get("id").toString();
+    }
+
+    /** 보고 제출(글자 항목만) */
+    private Res sendForm(String token, String siteId, Map<String, String> fields) throws Exception {
+        String boundary = UUID.randomUUID().toString();
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        for (var e : fields.entrySet()) {
+            field(body, boundary, e.getKey(), e.getValue());
+        }
+        body.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        HttpRequest req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/sites/" + siteId + "/reports"))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                .build();
+        HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> map = res.body().length > 0 ? JSON.readValue(res.body(), Map.class) : Map.of();
+        return new Res(res.statusCode(), map, null, res.body(), "");
     }
 
     private static void field(ByteArrayOutputStream out, String boundary, String name, String value) throws Exception {

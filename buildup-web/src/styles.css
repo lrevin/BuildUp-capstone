@@ -455,9 +455,6 @@ textarea {
   border-color: var(--navy);
   color: #fff;
 }
-.chips-filter {
-  margin-bottom: 12px;
-}
 
 .field {
   display: flex;
@@ -542,29 +539,6 @@ textarea {
   background: var(--navy);
   border-radius: 999px;
 }
-.pbar-fill.is-behind {
-  background: var(--danger);
-}
-.pbar-plan {
-  position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 3px;
-  margin-left: -1.5px;
-  background: var(--yellow);
-  border-radius: 2px;
-  box-shadow: 0 0 0 2px var(--white);
-}
-.legend-plan {
-  display: inline-block;
-  width: 3px;
-  height: 12px;
-  background: var(--yellow);
-  border-radius: 2px;
-  vertical-align: -1px;
-  margin-right: 4px;
-}
-
 /* ---- 로그인 ---- */
 .login {
   min-height: 100vh;
@@ -747,15 +721,11 @@ textarea {
   gap: 10px;
   color: var(--text);
   transition: box-shadow 0.15s, transform 0.15s;
-  border-left: 4px solid transparent;
 }
 .site-card:hover {
   text-decoration: none;
   box-shadow: 0 10px 24px rgba(27, 35, 51, 0.1);
   transform: translateY(-1px);
-}
-.site-card.is-behind {
-  border-left-color: var(--danger);
 }
 .site-card-head {
   display: flex;
@@ -821,14 +791,18 @@ textarea {
   align-items: center;
   gap: 6px;
 }
-.feed-process {
+.feed-work {
   flex: 1;
+  min-width: 0;
   font-weight: 700;
   font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.feed-process .muted {
-  font-weight: 500;
-  font-size: 13px;
+.feed-progress {
+  font-size: 12px;
+  color: var(--text-sub);
 }
 .feed-sub {
   display: flex;
@@ -1005,6 +979,11 @@ textarea {
   gap: 4px;
   font-size: 12px;
   margin-top: 4px;
+  min-width: 0;
+}
+.thumb figcaption .link {
+  min-width: 0;
+  text-align: left;
 }
 
 .table-wrap {
@@ -1136,9 +1115,16 @@ textarea {
   gap: 10px;
   flex-wrap: wrap;
 }
-.rm-process {
+.rm-work {
   font-size: 18px;
   font-weight: 800;
+  word-break: keep-all;
+}
+.rm-work-body {
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin: 0;
 }
 .rm-grid {
   display: grid;
@@ -1412,4 +1398,22 @@ textarea {
   .demo-email {
     display: none;
   }
+}
+
+/* ---- 공사 종류 ---- */
+.worktype {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy);
+  background: var(--fill);
+  border-radius: 6px;
+  padding: 2px 8px;
+  margin-top: 6px;
+}
+.work-cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

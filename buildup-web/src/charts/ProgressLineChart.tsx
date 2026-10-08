@@ -1,4 +1,4 @@
-// 전체 진행률 추이: 보고 이력으로 날짜별 누적(공정 비중 반영) 진행률을 다시 계산
+// 현장 전체 진행률 추이: 보고마다 보고자가 입력한 현장 전체 진행률(to)을 제출 시각에 찍는다
 import {
   CartesianGrid,
   Line,
@@ -8,103 +8,81 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { Process, Report } from '../types';
-import { dayKey, dayLabel } from '../utils/format';
-import { addDays, overallPlannedAt, parseYMD, round1, toYMD } from '../utils/plan';
+import type { Report } from '../types';
+import { formatDateTime, reportWork } from '../utils/format';
 import { CHART, ChartTooltip, LegendKey } from './common';
 
 export interface ProgressPoint {
-  date: string; // YYYY-MM-DD
-  actual: number;
-  planned: number | null;
-  reports: number;
+  t: number; // 제출 시각(ms)
+  actual: number; // 그 시점의 현장 전체 진행률
+  work: string | null; // 그 보고에서 진행한 작업(시작점은 null)
+  author: string | null;
 }
 
-// 공정별 시작값 = 그 공정의 가장 오래된 보고의 from (보고가 없으면 현재 진행률)
-export function buildProgressSeries(processes: Process[], reports: Report[]): ProgressPoint[] {
-  if (!processes.length || !reports.length) return [];
-  const total = processes.reduce((s, p) => s + p.weight, 0);
-  if (total <= 0) return [];
-
-  const asc = [...reports].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const value = new Map<string, number>();
-  for (const p of processes) value.set(p.key, p.progress);
-  const seen = new Set<string>();
+// 시작점 = 가장 오래된 보고의 from, 이후 보고마다 to
+export function buildProgressSeries(reports: Report[]): ProgressPoint[] {
+  if (!reports.length) return [];
+  // 같은 시각에 올라온 보고는 보고 번호 순(서버 순서와 같게)
+  const asc = [...reports].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || Number(a.id) - Number(b.id),
+  );
+  const first = asc[0];
+  const out: ProgressPoint[] = [
+    { t: new Date(first.createdAt).getTime(), actual: first.from, work: null, author: null },
+  ];
   for (const r of asc) {
-    if (!seen.has(r.processKey)) {
-      seen.add(r.processKey);
-      value.set(r.processKey, r.from);
-    }
-  }
-
-  const byDay = new Map<string, Report[]>();
-  for (const r of asc) {
-    const k = dayKey(r.createdAt);
-    const list = byDay.get(k) ?? [];
-    list.push(r);
-    byDay.set(k, list);
-  }
-
-  const overall = () => {
-    let sum = 0;
-    for (const p of processes) sum += (value.get(p.key) ?? 0) * p.weight;
-    return round1(sum / total);
-  };
-  const todayKey = toYMD(new Date());
-  // 지난 날짜는 그날이 끝난 시점, 오늘은 지금 시점의 계획(상단 '오늘 기준 계획'과 같은 값)
-  const planAt = (ymd: string) =>
-    overallPlannedAt(processes, ymd === todayKey ? new Date() : addDays(parseYMD(ymd), 1));
-
-  const first = parseYMD(dayKey(asc[0].createdAt));
-  const today = parseYMD(toYMD(new Date()));
-  const out: ProgressPoint[] = [];
-  const startKey = toYMD(addDays(first, -1));
-  out.push({ date: startKey, actual: overall(), planned: planAt(startKey), reports: 0 });
-
-  for (let d = first; d <= today; d = addDays(d, 1)) {
-    const k = toYMD(d);
-    const todays = byDay.get(k) ?? [];
-    for (const r of todays) value.set(r.processKey, r.to);
-    out.push({ date: k, actual: overall(), planned: planAt(k), reports: todays.length });
+    out.push({ t: new Date(r.createdAt).getTime(), actual: r.to, work: reportWork(r), author: r.author });
   }
   return out;
 }
 
-const shortDate = (ymd: string) => {
-  const [, m, d] = ymd.split('-').map(Number);
-  return `${m}/${d}`;
+const shortDate = (t: number) => {
+  const d = new Date(t);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
 };
 
+// x축 눈금: 자정 기준 날짜를 최대 8개 정도로 고르게
+const DAY = 24 * 60 * 60 * 1000;
+function dayTicks(min: number, max: number) {
+  const start = new Date(min);
+  start.setHours(0, 0, 0, 0);
+  const days = Math.max(1, Math.ceil((max - start.getTime()) / DAY));
+  const step = Math.max(1, Math.ceil(days / 7));
+  const out: number[] = [];
+  for (let i = 0; i <= days; i += step) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    out.push(d.getTime());
+  }
+  return out;
+}
+
 export default function ProgressLineChart({ data }: { data: ProgressPoint[] }) {
-  const hasPlan = data.some((d) => d.planned != null);
-  const values = data.flatMap((d) => (d.planned != null ? [d.actual, d.planned] : [d.actual]));
+  const values = data.map((d) => d.actual);
   const lo = Math.max(0, Math.floor((Math.min(...values) - 5) / 10) * 10);
   const hi = Math.min(100, Math.ceil((Math.max(...values) + 5) / 10) * 10);
   const last = data[data.length - 1];
+  const ticks = dayTicks(data[0].t, last.t);
 
   return (
     <div>
       <div className="chart-legend">
-        <LegendKey kind="line" color={CHART.actual} label={`실제 진행률 (현재 ${last.actual.toFixed(1)}%)`} />
-        {hasPlan && (
-          <LegendKey
-            kind="dashed"
-            color={CHART.plan}
-            label={`계획 진행률${last.planned != null ? ` (오늘 ${last.planned.toFixed(1)}%)` : ''}`}
-          />
-        )}
+        <LegendKey kind="line" color={CHART.actual} label={`실적 (현재 ${last.actual.toFixed(1)}%)`} />
       </div>
       <div style={{ width: '100%', height: 260 }}>
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke={CHART.grid} />
             <XAxis
-              dataKey="date"
+              dataKey="t"
+              type="number"
+              scale="time"
+              domain={[ticks[0], Math.max(last.t, ticks[ticks.length - 1])]}
+              ticks={ticks}
               tickFormatter={shortDate}
               tick={{ fill: CHART.muted, fontSize: 12 }}
               axisLine={{ stroke: CHART.axis }}
               tickLine={false}
-              minTickGap={24}
             />
             <YAxis
               domain={[lo, hi]}
@@ -122,37 +100,23 @@ export default function ProgressLineChart({ data }: { data: ProgressPoint[] }) {
                 const p = payload[0].payload as ProgressPoint;
                 return (
                   <ChartTooltip
-                    title={`${dayLabel(p.date)}${p.reports ? ` · 보고 ${p.reports}건` : ''}`}
+                    title={formatDateTime(new Date(p.t).toISOString())}
                     rows={[
-                      { color: CHART.actual, label: '실제', value: `${p.actual.toFixed(1)}%` },
-                      ...(p.planned != null
-                        ? [{ color: CHART.plan, dashed: true, label: '계획', value: `${p.planned.toFixed(1)}%` }]
-                        : []),
+                      { color: CHART.actual, label: p.work ? '실적' : '시작', value: `${p.actual.toFixed(1)}%` },
+                      ...(p.work ? [{ label: p.work.length > 24 ? `${p.work.slice(0, 24)}…` : p.work, value: p.author ?? '' }] : []),
                     ]}
                   />
                 );
               }}
             />
-            {hasPlan && (
-              <Line
-                type="linear"
-                dataKey="planned"
-                stroke={CHART.plan}
-                strokeWidth={2}
-                strokeDasharray="5 4"
-                dot={false}
-                activeDot={{ r: 4, stroke: CHART.surface, strokeWidth: 2 }}
-                isAnimationActive={false}
-                connectNulls
-              />
-            )}
             <Line
               type="linear"
               dataKey="actual"
+              name="실적"
               stroke={CHART.actual}
               strokeWidth={2}
               strokeLinejoin="round"
-              dot={false}
+              dot={data.length <= 40 ? { r: 2.5, fill: CHART.actual, strokeWidth: 0 } : false}
               activeDot={{ r: 5, stroke: CHART.surface, strokeWidth: 2 }}
               isAnimationActive={false}
             />

@@ -18,7 +18,7 @@ import { deleteReport, updateReportMemo } from '../api/buildup';
 import { errorMessage } from '../api/client';
 import { useDialog } from '../components/Dialog';
 import PhotoViewer from '../components/PhotoViewer';
-import { AppHeader, Avatar, Card, Chip, IconButton } from '../components/ui';
+import { AppHeader, Avatar, Card, IconButton } from '../components/ui';
 import { WEATHER_META } from '../components/WorkLog';
 import { ReviewCard } from '../components/Review';
 import { fileSize } from './ReportScreen';
@@ -155,12 +155,14 @@ export default function ReportDetailScreen({
                 {formatTime(report.createdAt)}
               </Text>
             </View>
-            <Chip label={report.processName} />
           </View>
 
           <View style={styles.divider} />
 
-          <Text style={styles.label}>진행률 변화</Text>
+          <Text style={styles.label}>진행한 작업</Text>
+          <Text style={styles.work}>{report.work || report.processName}</Text>
+
+          <Text style={[styles.label, styles.labelGap]}>현장 전체 진행률</Text>
           <View style={styles.progressRow}>
             <Text style={styles.from}>{pct(report.from)}</Text>
             <Text style={styles.arrow}>→</Text>
@@ -373,6 +375,14 @@ const styles = StyleSheet.create({
   date: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
   divider: { height: 1, backgroundColor: colors.divider, marginVertical: 18 },
   label: { fontSize: 13, color: colors.textSub },
+  labelGap: { marginTop: 18 },
+  work: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    lineHeight: 26,
+    marginTop: 4,
+  },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'baseline',

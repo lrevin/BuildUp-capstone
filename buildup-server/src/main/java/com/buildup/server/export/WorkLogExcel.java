@@ -3,7 +3,6 @@ package com.buildup.server.export;
 import com.buildup.server.common.Times;
 import com.buildup.server.report.Report;
 import com.buildup.server.site.Site;
-import com.buildup.server.site.SiteProcess;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -11,7 +10,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +31,8 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 /**
  * 현장 작업일보 엑셀(.xlsx) 한 개를 만든다.
  * 시트 1 '작업일보': 기간 안의 보고 한 줄씩
- * 시트 2 '일자별 요약': 날짜마다 보고 수·공정·날씨·인원
- * 시트 3 '공정 현황': 공정별 현재 진행률과 전체 진행률
+ * 시트 2 '일자별 요약': 날짜마다 보고 수·진행한 작업·날씨·인원
+ * 시트 3 '현장 개요': 공사 종류, 현재 진행률, 마지막 보고
  */
 final class WorkLogExcel {
 
@@ -98,14 +96,14 @@ final class WorkLogExcel {
         String period = "기간: " + from + " ~ " + to + "   ·   출력: " + ZonedDateTime.now(Times.SEOUL).format(STAMP);
         x.reportsSheet(site, period, reports);
         x.dailySheet(site, period, reports);
-        x.processSheet(site);
+        x.siteSheet(site, reports.size());
         return x.bytes();
     }
 
     private void reportsSheet(Site site, String period, List<Report> reports) {
         Sheet sh = wb.createSheet("작업일보");
-        String[] cols = {"날짜", "시간", "공정", "이전 진행률", "보고 진행률", "증가", "날씨", "인원", "장비", "메모", "작성자", "사진", "첨부", "검토", "검토 코멘트"};
-        int[] widths = {12, 7, 14, 11, 11, 9, 7, 7, 22, 46, 10, 6, 6, 9, 30};
+        String[] cols = {"날짜", "시간", "진행한 작업", "이전 진행률", "보고 진행률", "증가", "날씨", "인원", "장비", "메모", "작성자", "사진", "첨부", "검토", "검토 코멘트"};
+        int[] widths = {12, 7, 30, 11, 11, 9, 7, 7, 22, 46, 10, 6, 6, 9, 30};
         int r = header(sh, site.getName() + " 작업일보", period, cols, widths);
         if (reports.isEmpty()) {
             Row row = sh.createRow(r);
@@ -119,7 +117,7 @@ final class WorkLogExcel {
             Row row = sh.createRow(r++);
             cell(row, 0, at.toLocalDate().toString(), center);
             cell(row, 1, at.format(TIME), center);
-            cell(row, 2, rep.getProcessName(), text);
+            cell(row, 2, rep.workText(), wrap);
             num(row, 3, rep.getFromProgress(), percent);
             num(row, 4, rep.getToProgress(), percent);
             num(row, 5, rep.getToProgress() - rep.getFromProgress(), percent);
@@ -142,8 +140,8 @@ final class WorkLogExcel {
 
     private void dailySheet(Site site, String period, List<Report> reports) {
         Sheet sh = wb.createSheet("일자별 요약");
-        String[] cols = {"날짜", "보고 수", "보고한 공정", "날씨", "인원(최대)", "진행률 증가 합계"};
-        int[] widths = {12, 9, 40, 14, 11, 16};
+        String[] cols = {"날짜", "보고 수", "진행한 작업", "날씨", "인원(최대)", "진행률 증가 합계"};
+        int[] widths = {12, 9, 50, 14, 11, 16};
         int r = header(sh, site.getName() + " 일자별 요약", period, cols, widths);
 
         Map<LocalDate, List<Report>> byDay = new TreeMap<>();
@@ -164,7 +162,7 @@ final class WorkLogExcel {
             Integer maxWorkers = null;
             double gain = 0;
             for (Report rep : day) {
-                processes.add(rep.getProcessName());
+                processes.add(rep.workText());
                 if (!weather(rep.getWeather()).isEmpty()) {
                     weathers.add(weather(rep.getWeather()));
                 }
@@ -187,32 +185,32 @@ final class WorkLogExcel {
         }
     }
 
-    private void processSheet(Site site) {
-        Sheet sh = wb.createSheet("공정 현황");
-        String[] cols = {"공정", "가중치", "현재 진행률", "계획 시작", "계획 종료", "마지막 보고"};
-        int[] widths = {18, 9, 12, 12, 12, 18};
+    private void siteSheet(Site site, int reportCount) {
+        Sheet sh = wb.createSheet("현장 개요");
+        String[] cols = {"항목", "내용"};
+        int[] widths = {18, 40};
         String now = "기준: " + ZonedDateTime.now(Times.SEOUL).format(STAMP);
-        int r = header(sh, site.getName() + " 공정 현황", now, cols, widths);
-
-        List<SiteProcess> list = site.getProcesses().stream()
-                .sorted(Comparator.comparingInt(SiteProcess::getSortOrder))
-                .toList();
-        for (SiteProcess p : list) {
+        int r = header(sh, site.getName() + " 현장 개요", now, cols, widths);
+        Object[][] rows = {
+            {"현장명", site.getName()},
+            {"주소", site.getAddress()},
+            {"공사 종류", site.getWorkType() == null ? "" : site.getWorkType()},
+            {"현장 관리자", site.getOwner().getName()},
+            {"이 기간 보고 수", (double) reportCount},
+            {"마지막 보고", stamp(site.getLastReportedAt())},
+        };
+        for (Object[] v : rows) {
             Row row = sh.createRow(r++);
-            cell(row, 0, p.getName(), text);
-            num(row, 1, p.getWeight(), number);
-            num(row, 2, p.getProgress(), percent);
-            cell(row, 3, p.getPlanStart() == null ? "" : p.getPlanStart().toString(), center);
-            cell(row, 4, p.getPlanEnd() == null ? "" : p.getPlanEnd().toString(), center);
-            cell(row, 5, stamp(p.getLastReportedAt()), center);
+            cell(row, 0, (String) v[0], text);
+            if (v[1] instanceof Double d) {
+                num(row, 1, d, number);
+            } else {
+                cell(row, 1, (String) v[1], text);
+            }
         }
         Row total = sh.createRow(r);
-        cell(total, 0, "전체 진행률(가중치 반영)", totalLabel);
-        cell(total, 1, "", totalLabel);
-        num(total, 2, site.overallProgress(), totalPercent);
-        for (int c = 3; c < cols.length; c++) {
-            cell(total, c, "", totalLabel);
-        }
+        cell(total, 0, "현재 전체 진행률", totalLabel);
+        num(total, 1, site.overallProgress(), totalPercent);
     }
 
     /** 제목·부제·머리행을 쓰고 다음 행 번호를 돌려준다 */

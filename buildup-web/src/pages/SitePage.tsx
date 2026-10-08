@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as API from '../api';
-import ProcessChart from '../charts/ProcessChart';
 import ProgressLineChart, { buildProgressSeries } from '../charts/ProgressLineChart';
 import ReportModal, { reportPhotos } from '../components/ReportModal';
 import {
@@ -11,12 +10,10 @@ import {
   MATERIAL_META,
   ProgressBar,
   ReviewBadge,
-  ScheduleBadge,
   Spinner,
 } from '../components/ui';
-import type { MaterialRequest, ProcessCount, Report, Site } from '../types';
-import { dayKey, dayLabel, formatDateTime, formatMDHM, timeAgo } from '../utils/format';
-import { addDays, overallPlannedAt, toYMD } from '../utils/plan';
+import type { MaterialRequest, Report, Site } from '../types';
+import { addDays, dayKey, dayLabel, formatDateTime, formatMDHM, reportWork, timeAgo, toYMD } from '../utils/format';
 
 const PAGE_SIZE = 15;
 const TIMELINE_DAYS = 7;
@@ -66,30 +63,26 @@ export default function SitePage() {
   }, [loadCore]);
 
   // ---- 보고 목록(나눠 불러오기) ----
-  const [filter, setFilter] = useState<string | null>(null);
   const [pageItems, setPageItems] = useState<Report[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [counts, setCounts] = useState<{ total: number | null; processes: ProcessCount[] | null }>({
-    total: null,
-    processes: null,
-  });
+  const [total, setTotal] = useState<number | null>(null);
   const [pageBusy, setPageBusy] = useState(false);
 
   const loadPage = useCallback(
     async (reset: boolean, after: string | null) => {
       setPageBusy(true);
       try {
-        const page = await API.getSiteReportPage(id, { cursor: reset ? null : after, size: PAGE_SIZE, processKey: filter });
+        const page = await API.getSiteReportPage(id, { cursor: reset ? null : after, size: PAGE_SIZE });
         setPageItems((prev) => (reset ? page.items : [...(prev ?? []), ...page.items]));
         setCursor(page.nextCursor);
-        if (reset && page.total != null && !filter) setCounts({ total: page.total, processes: page.processes });
+        if (reset && page.total != null) setTotal(page.total);
       } catch (err) {
         setError(API.errorMessage(err));
       } finally {
         setPageBusy(false);
       }
     },
-    [id, filter],
+    [id],
   );
 
   useEffect(() => {
@@ -103,11 +96,7 @@ export default function SitePage() {
     setAllReports(patch);
   };
 
-  const planned = site ? overallPlannedAt(site.processes) : null;
-  const series = useMemo(
-    () => (site && allReports ? buildProgressSeries(site.processes, allReports) : []),
-    [site, allReports],
-  );
+  const series = useMemo(() => (allReports ? buildProgressSeries(allReports) : []), [allReports]);
 
   if (error && !site) {
     return (
@@ -128,6 +117,7 @@ export default function SitePage() {
         <div className="site-head-info">
           <div className="eyebrow">{site.hqName ? `${site.hqName} 연결 현장` : '본사 미연결 현장'}</div>
           <h1>{site.name}</h1>
+          {site.workType && <span className="worktype">{site.workType}</span>}
           <p className="muted">
             {site.address} · 관리자 {site.ownerName} · 인원 {site.memberCount}명
           </p>
@@ -135,37 +125,28 @@ export default function SitePage() {
         <div className="site-head-progress">
           <div className="site-head-numbers">
             <div>
-              <div className="label">전체 진행률</div>
+              <div className="label">현장 전체 진행률</div>
               <div className="hero">{site.overallProgress.toFixed(1)}%</div>
             </div>
             <div>
-              <div className="label">오늘 기준 계획</div>
-              <div className="hero-sub">{planned != null ? `${planned.toFixed(1)}%` : '-'}</div>
+              <div className="label">최근 보고</div>
+              <div className="hero-sub">{site.lastReportedAt ? timeAgo(site.lastReportedAt) : '-'}</div>
             </div>
-            <ScheduleBadge actual={site.overallProgress} planned={planned} />
           </div>
-          <ProgressBar value={site.overallProgress} planned={planned} size="lg" />
+          <ProgressBar value={site.overallProgress} size="lg" />
         </div>
         <WorklogDownload site={site} />
       </section>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      <div className="two-col">
-        <section className="card">
-          <div className="section-head">
-            <h2>공정별 진행률</h2>
-          </div>
-          {site.processes.length ? <ProcessChart processes={site.processes} /> : <Empty>등록된 공정이 없어요.</Empty>}
-        </section>
-        <section className="card">
-          <div className="section-head">
-            <h2>전체 진행률 추이</h2>
-            <span className="muted small">보고 이력으로 계산 · 공정 비중 반영</span>
-          </div>
-          {!allReports ? <Spinner /> : series.length > 1 ? <ProgressLineChart data={series} /> : <Empty>보고가 쌓이면 추이를 보여드려요.</Empty>}
-        </section>
-      </div>
+      <section className="card">
+        <div className="section-head">
+          <h2>현장 전체 진행률 추이</h2>
+          <span className="muted small">보고자가 보고마다 입력한 진행률</span>
+        </div>
+        {!allReports ? <Spinner /> : series.length > 1 ? <ProgressLineChart data={series} /> : <Empty>보고가 쌓이면 추이를 보여드려요.</Empty>}
+      </section>
 
       <PhotoTimeline reports={allReports} onOpen={setOpen} />
 
@@ -174,20 +155,9 @@ export default function SitePage() {
           <div className="section-head">
             <h2>진행 보고</h2>
             <span className="muted small">
-              {counts.total != null ? `전체 ${counts.total}건` : ''}
+              {total != null ? `전체 ${total}건` : ''}
               {pendingReviews ? ` · 검토 대기 ${pendingReviews}건` : ''}
             </span>
-          </div>
-          <div className="chips chips-filter">
-            <button className={`chip ${filter === null ? 'is-on' : ''}`} onClick={() => setFilter(null)}>
-              전체{counts.total != null ? ` ${counts.total}` : ''}
-            </button>
-            {(counts.processes ?? site.processes.map((p) => ({ key: p.key, name: p.name, count: -1 }))).map((p) => (
-              <button key={p.key} className={`chip ${filter === p.key ? 'is-on' : ''}`} onClick={() => setFilter(p.key)}>
-                {p.name}
-                {p.count >= 0 ? ` ${p.count}` : ''}
-              </button>
-            ))}
           </div>
           {!pageItems ? (
             <Spinner />
@@ -199,8 +169,8 @@ export default function SitePage() {
                 <thead>
                   <tr>
                     <th>제출</th>
-                    <th>공정</th>
-                    <th className="num">진행률</th>
+                    <th>진행한 작업</th>
+                    <th className="num">현장 전체 진행률</th>
                     <th>작성자</th>
                     <th>자료</th>
                     <th>검토</th>
@@ -212,8 +182,8 @@ export default function SitePage() {
                       <td className="nowrap">
                         {formatDateTime(r.createdAt)}
                       </td>
-                      <td className="nowrap">
-                        <b>{r.processName}</b>
+                      <td className="work-cell" title={reportWork(r)}>
+                        <b>{reportWork(r)}</b>
                       </td>
                       <td className="num nowrap">
                         {r.from.toFixed(1)} → <b>{r.to.toFixed(1)}%</b>
@@ -347,15 +317,15 @@ function PhotoTimeline({ reports, onOpen }: { reports: Report[] | null; onOpen: 
                       onClick={() =>
                         setZoom({
                           src: p.url,
-                          caption: `${p.report.processName} · ${p.takenAt ? `촬영 ${formatMDHM(p.takenAt)}` : `보고 ${formatMDHM(p.report.createdAt)}`}`,
+                          caption: `${reportWork(p.report)} · ${p.takenAt ? `촬영 ${formatMDHM(p.takenAt)}` : `보고 ${formatMDHM(p.report.createdAt)}`}`,
                         })
                       }
                     >
-                      <img src={p.url} alt={`${p.report.processName} 사진`} loading="lazy" />
+                      <img src={p.url} alt={`${reportWork(p.report)} 사진`} loading="lazy" />
                     </button>
                     <figcaption>
-                      <button className="link" onClick={() => onOpen(p.report)}>
-                        {p.report.processName}
+                      <button className="link ellipsis" title={reportWork(p.report)} onClick={() => onOpen(p.report)}>
+                        {reportWork(p.report)}
                       </button>
                       <span className="muted">{p.takenAt ? formatMDHM(p.takenAt) : timeAgo(p.report.createdAt)}</span>
                     </figcaption>
@@ -438,7 +408,7 @@ function MaterialsPanel({
                   <span className={`badge ${meta.cls}`}>{meta.label}</span>
                 </div>
                 <div className="muted small">
-                  {m.processName ?? '현장 공통'} · {m.author} · {timeAgo(m.createdAt)}
+                  {m.author} · {timeAgo(m.createdAt)}
                   {m.neededBy ? ` · 필요일 ${m.neededBy}` : ''}
                 </div>
                 {m.note?.trim() && <div className="small material-note">{m.note}</div>}

@@ -6,7 +6,7 @@ type Loader = (cursor: string | null) => Promise<ReportPage>;
 
 export function usePagedReports(loader: Loader) {
   const [items, setItems] = useState<Report[] | null>(null);
-  const [head, setHead] = useState<ReportPage | null>(null); // 첫 묶음(전체·공정별 보고 수)
+  const [head, setHead] = useState<ReportPage | null>(null); // 첫 묶음(전체 보고 수)
   const [next, setNext] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
@@ -72,7 +72,6 @@ export function usePagedReports(loader: Loader) {
   return {
     items,
     total: head?.total ?? null,
-    processes: head?.processes ?? null,
     hasMore: next !== null,
     loadingMore,
     error,

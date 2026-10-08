@@ -3,10 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import * as API from '../api';
 import { useAuth } from '../auth';
 import ReportModal from '../components/ReportModal';
-import { CheckIcon, Empty, ProgressBar, ReviewBadge, ScheduleBadge, Spinner } from '../components/ui';
+import { CheckIcon, Empty, ProgressBar, ReviewBadge, Spinner } from '../components/ui';
 import type { HqInfo, Report, SiteSummary } from '../types';
-import { timeAgo } from '../utils/format';
-import { round1, scheduleStatus } from '../utils/plan';
+import { isToday, reportWork, round1, timeAgo } from '../utils/format';
 
 const FEED_SIZE = 20;
 
@@ -74,19 +73,21 @@ export default function Dashboard() {
     if (!sites) return null;
     const n = sites.length;
     const avg = n ? round1(sites.reduce((s, x) => s + x.overallProgress, 0) / n) : 0;
-    const behind = sites.filter(
-      (s) => s.plannedProgress != null && scheduleStatus(s.overallProgress, s.plannedProgress).status === 'behind',
-    ).length;
+    const today = sites.filter((s) => isToday(s.lastReportedAt)).length;
     const reviews = sites.reduce((s, x) => s + (x.pendingReviews ?? 0), 0);
     const materials = sites.reduce((s, x) => s + (x.pendingMaterials ?? 0), 0);
-    return { n, avg, behind, reviews, materials };
+    return { n, avg, today, reviews, materials };
   }, [sites]);
 
   const sortedSites = useMemo(() => {
     if (!sites) return [];
-    // 지연이 큰 현장부터
-    const gap = (s: SiteSummary) => (s.plannedProgress == null ? 0 : s.overallProgress - s.plannedProgress);
-    return [...sites].sort((a, b) => gap(a) - gap(b));
+    // 처리할 일(검토·자재 대기)이 있는 현장 먼저, 그다음 최근에 보고가 올라온 현장 순
+    const todo = (s: SiteSummary) => (s.pendingReviews ?? 0) + (s.pendingMaterials ?? 0);
+    return [...sites].sort(
+      (a, b) =>
+        Number(todo(b) > 0) - Number(todo(a) > 0) ||
+        (b.lastReportedAt ?? '').localeCompare(a.lastReportedAt ?? ''),
+    );
   }, [sites]);
 
   const title = isHq ? hq?.name ?? user?.company ?? '본사' : `${user?.name}님의 현장`;
@@ -117,7 +118,7 @@ export default function Dashboard() {
           <section className="kpis">
             <Kpi label="관리 현장 수" value={`${kpi!.n}`} unit="곳" />
             <Kpi label="평균 진행률" value={kpi!.avg.toFixed(1)} unit="%" />
-            <Kpi label="지연 현장 수" value={`${kpi!.behind}`} unit="곳" tone={kpi!.behind ? 'danger' : undefined} />
+            <Kpi label="오늘 보고 있는 현장" value={`${kpi!.today}`} unit={`곳 / ${kpi!.n}곳`} />
             <Kpi label="검토 대기 보고" value={`${kpi!.reviews}`} unit="건" tone={kpi!.reviews ? 'info' : undefined} />
             <Kpi label="승인 대기 자재" value={`${kpi!.materials}`} unit="건" tone={kpi!.materials ? 'warn' : undefined} />
           </section>
@@ -126,9 +127,7 @@ export default function Dashboard() {
             <section>
               <div className="section-head">
                 <h2>현장 현황</h2>
-                <span className="muted small">
-                  <span className="legend-plan" /> 오늘 기준 계획 진행률
-                </span>
+                <span className="muted small">진행률은 보고자가 입력한 현장 전체 진행률</span>
               </div>
               {sortedSites.length === 0 ? (
                 <Empty>
@@ -157,8 +156,11 @@ export default function Dashboard() {
                     <li key={r.id}>
                       <button className="feed-item" onClick={() => setOpen(r)}>
                         <div className="feed-top">
-                          <span className="feed-process">
-                            {r.processName} <span className="muted">{r.from.toFixed(1)}→{r.to.toFixed(1)}%</span>
+                          <span className="feed-work" title={reportWork(r)}>
+                            {reportWork(r)}
+                          </span>
+                          <span className="feed-progress nowrap">
+                            {r.from.toFixed(1)}→{r.to.toFixed(1)}%
                           </span>
                           <CheckIcon report={r} />
                           <ReviewBadge report={r} />
@@ -214,11 +216,10 @@ function Kpi({ label, value, unit, tone }: { label: string; value: string; unit:
 }
 
 function SiteCard({ site: s, onClick }: { site: SiteSummary; onClick: () => void }) {
-  const behind = s.plannedProgress != null && scheduleStatus(s.overallProgress, s.plannedProgress).status === 'behind';
   return (
     <Link
       to={`/sites/${s.id}`}
-      className={`card site-card ${behind ? 'is-behind' : ''}`}
+      className="card site-card"
       onClick={(e) => {
         e.preventDefault();
         onClick();
@@ -228,22 +229,24 @@ function SiteCard({ site: s, onClick }: { site: SiteSummary; onClick: () => void
         <div className="site-card-title">
           <h3>{s.name}</h3>
           <p className="muted small ellipsis">{s.address}</p>
+          {s.workType && <span className="worktype">{s.workType}</span>}
         </div>
-        <ScheduleBadge actual={s.overallProgress} planned={s.plannedProgress} />
+        {isToday(s.lastReportedAt) && <span className="badge badge-green">오늘 보고</span>}
       </div>
       <div className="site-card-progress">
         <span className="big">{s.overallProgress.toFixed(1)}%</span>
-        <span className="muted small">{s.plannedProgress != null ? `계획 ${s.plannedProgress.toFixed(1)}%` : '계획 없음'}</span>
+        <span className="muted small">
+          {s.lastReportedAt ? `최근 보고 ${timeAgo(s.lastReportedAt)}` : '보고 없음'}
+        </span>
       </div>
-      <ProgressBar value={s.overallProgress} planned={s.plannedProgress} />
+      <ProgressBar value={s.overallProgress} />
       <div className="site-card-foot">
         <span className="muted small">
-          관리자 {s.ownerName} · 인원 {s.memberCount}명 · 공정 {s.processCount}개
+          관리자 {s.ownerName} · 인원 {s.memberCount}명
         </span>
         <span className="row-gap-sm">
           {!!s.pendingReviews && <span className="badge badge-blue">검토 대기 {s.pendingReviews}</span>}
           {!!s.pendingMaterials && <span className="badge badge-yellow">자재 대기 {s.pendingMaterials}</span>}
-          {!!s.todayReported && <span className="badge badge-gray">오늘 보고 {s.todayReported}</span>}
         </span>
       </div>
     </Link>

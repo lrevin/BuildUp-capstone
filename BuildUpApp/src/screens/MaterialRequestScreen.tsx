@@ -21,7 +21,7 @@ import { AppHeader, BottomBar, Button, Card } from '../components/ui';
 import { MAX_MATERIAL_ITEMS } from '../data/dummy';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
-import { MaterialItem, ProcessKey } from '../types';
+import { MaterialItem } from '../types';
 import { addDays, parseYMD, toYMD } from '../utils/plan';
 
 
@@ -53,23 +53,14 @@ export default function MaterialRequestScreen({
   navigation,
   route,
 }: ScreenProps<'MaterialRequest'>) {
-  const { siteId, siteName, processKey } = route.params;
+  const { siteId, siteName } = route.params;
   const dialog = useDialog();
   const user = useUser();
-  const [process, setProcess] = useState<ProcessKey | null>(processKey ?? null);
-  // 공정 선택지: 현장 공정 + '공통'(현장이 정한 공정을 불러온다)
-  const [processes, setProcesses] = useState<
-    { key: ProcessKey | null; label: string }[]
-  >([{ key: null, label: '공통' }]);
   const [isOwner, setIsOwner] = useState(false);
   useEffect(() => {
     fetchSite(siteId)
       .then(s => {
         setIsOwner(s.ownerId === user.id);
-        setProcesses([
-          { key: null, label: '공통' },
-          ...s.processes.map(p => ({ key: p.key, label: p.name })),
-        ]);
       })
       .catch(() => {});
   }, [siteId, user.id]);
@@ -154,7 +145,7 @@ export default function MaterialRequestScreen({
     try {
       const created = await requestMaterials({
         siteId,
-        processKey: process,
+        processKey: null,
         items,
         neededBy,
         urgent,
@@ -225,15 +216,6 @@ export default function MaterialRequestScreen({
           keyboardShouldPersistTaps="handled"
         >
           <Card>
-            <Text style={styles.cardTitle}>공정</Text>
-            <View style={styles.chips}>
-              {processes.map(p =>
-                chip(p.label, process === p.key, () => setProcess(p.key)),
-              )}
-            </View>
-          </Card>
-
-          <Card style={styles.gap}>
             <View style={styles.titleRow}>
               <Text style={styles.cardTitleInline}>필요한 자재</Text>
               <Text style={styles.counter}>

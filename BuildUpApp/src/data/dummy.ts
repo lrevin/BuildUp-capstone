@@ -20,9 +20,6 @@ import {
   Member,
   NewMaterialRequest,
   NewReport,
-  Process,
-  ProcessCount,
-  ProcessInput,
   Report,
   ReportPage,
   Role,
@@ -31,12 +28,22 @@ import {
   Site,
   SitePreview,
   SiteSummary,
-  ProcessPlanInput,
   UpdateSiteInput,
   User,
   Weather,
 } from '../types';
-import { addDays, overallPlannedAt, toYMD } from '../utils/plan';
+import { addDays, toYMD } from '../utils/plan';
+
+// 예전 방식(공정별 진행률) 데모 데이터를 만들 때만 쓰는 모양. 만든 뒤 현장 전체 진행률로 바꾼다(toSiteLevel)
+interface Process {
+  key: string;
+  name: string;
+  weight: number;
+  progress: number;
+  lastReportedAt: string | null;
+  planStart: string | null;
+  planEnd: string | null;
+}
 
 export const MAX_PHOTOS = 10;
 export const MAX_MATERIAL_ITEMS = 20;
@@ -66,7 +73,10 @@ interface SiteRow {
   longitude?: number | null;
   memberIds: string[];
   joinedAt: Record<string, string>; // 사용자 id → 참여 시각
-  processes: Process[];
+  processes: Process[]; // 예전 방식 데이터(데모를 만들 때만)
+  progress?: number; // 현장 전체 진행률(보고하는 사람이 입력)
+  workType?: string | null; // 공사 종류
+  lastReportedAt?: string | null;
 }
 
 type ReportRow = Omit<
@@ -167,6 +177,7 @@ function makeHistory(
       siteId,
       processKey: spec.key,
       processName: spec.name,
+      work: `${spec.name} 작업`,
       from,
       to,
       photoUris: [],
@@ -403,7 +414,50 @@ function makeSeed(): DummyState {
     ...wonjuSpecs.flatMap(s => makeHistory('site-3', s, seq, 'u-w2')),
   ];
 
+  toSiteLevel(sites, reports);
   return { users, companies, sites, reports, materials: seedMaterials() };
+}
+
+// 서버 SiteProgressMigration과 같은 방식: 보고마다 그 시점의 현장 전체 진행률(보고 전 → 후)
+const DEMO_WORK_TYPES: Record<string, string> = {
+  '482915': '건축 신축 공사',
+  '731046': '증축 공사',
+  '615203': '주택 리모델링 공사',
+};
+function toSiteLevel(siteRows: SiteRow[], reportRows: ReportRow[]) {
+  for (const site of siteRows) {
+    const weights = new Map(site.processes.map(p => [p.key, p.weight]));
+    const progress = new Map(site.processes.map(p => [p.key, p.progress]));
+    const rows = reportRows
+      .filter(r => r.siteId === site.id)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const started = new Set<string>();
+    rows.forEach(r => {
+      if (!started.has(r.processKey)) {
+        started.add(r.processKey);
+        progress.set(r.processKey, r.from);
+      }
+    });
+    const weighted = () => {
+      let sum = 0;
+      let total = 0;
+      weights.forEach((w, k) => {
+        sum += (progress.get(k) ?? 0) * w;
+        total += w;
+      });
+      return total > 0 ? Math.round((sum / total) * 10) / 10 : 0;
+    };
+    rows.forEach(r => {
+      const before = weighted();
+      progress.set(r.processKey, r.to);
+      r.from = before;
+      r.to = Math.max(before, weighted());
+    });
+    site.progress = legacyOverall(site.processes);
+    site.lastReportedAt = rows.length ? rows[rows.length - 1].createdAt : null;
+    site.workType = DEMO_WORK_TYPES[site.code] ?? '기타 공사';
+    site.processes = [];
+  }
 }
 
 // 자재 요청 예시: 승인 대기·승인·반려가 골고루 보이도록(서버 DemoDataSeeder와 같은 내용)
@@ -503,7 +557,8 @@ export const dummyState = {
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
 // 비중은 상대값이라 합으로 나눈다(공정이 없으면 0)
-const overall = (processes: Process[]) => {
+// 함수 선언(맨 위로 끌어올려짐): 데모 데이터를 만들 때(파일을 읽자마자) 쓴다
+function legacyOverall(processes: Process[]) {
   const total = processes.reduce((acc, p) => acc + p.weight, 0);
   if (total <= 0) {
     return 0;
@@ -514,10 +569,8 @@ const overall = (processes: Process[]) => {
         10,
     ) / 10
   );
-};
+}
 
-const isToday = (iso: string | null) =>
-  !!iso && new Date(iso).toDateString() === new Date().toDateString();
 
 // 비밀번호는 밖으로 내보내지 않는다
 function publicUser(row: UserRow): User {
@@ -599,16 +652,17 @@ const siteName = (siteId: string) =>
   sites.find(s => s.id === siteId)?.name ?? '';
 
 // 해당 공정의 가장 최근 보고
-const latestOf = (siteId: string, processKey: Process['key']) =>
+// 현장의 가장 최근 보고
+const latestOf = (siteId: string) =>
   reports
-    .filter(r => r.siteId === siteId && r.processKey === processKey)
+    .filter(r => r.siteId === siteId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 
 // 로그인한 사용자 기준 권한을 붙여서 내려준다
 function withPermissions(userId: string, row: ReportRow): Report {
   const site = sites.find(s => s.id === row.siteId);
   const isAuthor = row.authorId === userId;
-  const isLatest = latestOf(row.siteId, row.processKey)?.id === row.id;
+  const isLatest = latestOf(row.siteId)?.id === row.id;
   const review = row.review ?? {
     status: 'approved' as const,
     comment: null,
@@ -640,12 +694,11 @@ function summary(s: SiteRow, userId: string): SiteSummary {
     address: s.address,
     ownerName: ownerName(s),
     memberCount: s.memberIds.length,
-    overallProgress: overall(s.processes),
+    overallProgress: s.progress ?? 0,
     isOwner: s.ownerId === userId,
     hqName: companies.find(c => c.id === s.companyId)?.name ?? null,
-    todayReported: s.processes.filter(p => isToday(p.lastReportedAt)).length,
-    processCount: s.processes.length,
-    plannedProgress: overallPlannedAt(s.processes),
+    workType: s.workType ?? null,
+    lastReportedAt: s.lastReportedAt ?? null,
     // 승인·반려를 기다리는 요청
     pendingMaterials: materials.filter(
       m => m.siteId === s.id && m.status === 'requested',
@@ -811,8 +864,9 @@ export const dummyDb = {
       ownerName: ownerName(s),
       code: isOwner ? s.code : null,
       memberCount: s.memberIds.length,
-      overallProgress: overall(s.processes),
-      processes: s.processes,
+      overallProgress: s.progress ?? 0,
+      workType: s.workType ?? null,
+      lastReportedAt: s.lastReportedAt ?? null,
       hqName: companies.find(c => c.id === s.companyId)?.name ?? null,
       latitude: s.latitude ?? null,
       longitude: s.longitude ?? null,
@@ -838,6 +892,10 @@ export const dummyDb = {
         '현장 관리자만 현장을 만들 수 있어요. 내 정보에서 현장 관리자로 전환해 주세요.',
       );
     }
+    const workType = (input.workType ?? '').trim();
+    if (!workType) {
+      throw new ApiError('공사 종류를 골라 주세요.');
+    }
     const row: SiteRow = {
       id: `site-${Date.now()}`,
       name: input.name.trim(),
@@ -847,86 +905,25 @@ export const dummyDb = {
       companyId: u.managerCompanyId ?? null, // 보고하는 본사가 있으면 자동 연결
       memberIds: [userId],
       joinedAt: { [userId]: new Date().toISOString() },
-      processes: [], // 총관리자가 '공정 관리'에서 직접 만든다
+      processes: [],
+      progress: 0,
+      workType: workType.slice(0, 50),
+      lastReportedAt: null,
     };
     sites.push(row);
     return dummyDb.getSite(userId, row.id);
-  },
-
-  // 총관리자: 공정 계획(시작일·완료일) 저장
-  updatePlan(userId: string, siteId: string, plans: ProcessPlanInput[]): Site {
-    const s = findOwnedSite(userId, siteId, '공정 계획을 수정');
-    for (const plan of plans) {
-      if (plan.planStart && plan.planEnd && plan.planStart > plan.planEnd) {
-        throw new ApiError('완료일은 시작일보다 늦어야 합니다.');
-      }
-      const p = s.processes.find(x => x.key === plan.key);
-      if (p) {
-        p.planStart = plan.planStart;
-        p.planEnd = plan.planEnd;
-      }
-    }
-    return dummyDb.getSite(userId, siteId);
-  },
-
-  // 총관리자: 공정 관리(서버 SiteService.updateProcesses와 같은 규칙)
-  updateProcesses(userId: string, siteId: string, inputs: ProcessInput[]): Site {
-    const s = findOwnedSite(userId, siteId, '공정을 수정');
-    if (inputs.length > 30) {
-      throw new ApiError('공정은 30개까지 만들 수 있어요.');
-    }
-    const names = new Set<string>();
-    for (const i of inputs) {
-      const name = i.name.trim();
-      if (!name) {
-        throw new ApiError('공정 이름을 입력해 주세요.');
-      }
-      if (name.length > 30) {
-        throw new ApiError('공정 이름은 30자까지 쓸 수 있어요.');
-      }
-      if (names.has(name)) {
-        throw new ApiError(`'${name}' 공정이 두 번 들어 있어요.`);
-      }
-      names.add(name);
-      if (!(i.weight > 0) || i.weight > 1000) {
-        throw new ApiError(`'${name}' 공정의 비중을 확인해 주세요.`);
-      }
-      if (!!i.planStart !== !!i.planEnd) {
-        throw new ApiError(`'${name}' 공정의 시작일과 완료일을 모두 정해 주세요.`);
-      }
-      if (i.planStart && i.planEnd && i.planStart > i.planEnd) {
-        throw new ApiError(`'${name}' 공정의 완료일은 시작일보다 늦어야 합니다.`);
-      }
-    }
-    const kept = new Set(inputs.map(i => i.key).filter(Boolean));
-    const removed = s.processes.filter(p => !kept.has(p.key));
-    const blocked = removed.find(p =>
-      reports.some(r => r.siteId === s.id && r.processKey === p.key),
-    );
-    if (blocked) {
-      throw new ApiError(
-        `'${blocked.name}' 공정에는 보고가 있어 삭제할 수 없어요. 이름은 바꿀 수 있어요.`,
-      );
-    }
-    s.processes = inputs.map(i => {
-      const old = s.processes.find(p => p.key === i.key);
-      return {
-        key: old?.key ?? `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-        name: i.name.trim(),
-        weight: i.weight,
-        progress: old?.progress ?? 0,
-        lastReportedAt: old?.lastReportedAt ?? null,
-        planStart: i.planStart,
-        planEnd: i.planEnd,
-      };
-    });
-    return dummyDb.getSite(userId, siteId);
   },
 
   updateSite(userId: string, siteId: string, input: UpdateSiteInput): Site {
     const s = findOwnedSite(userId, siteId, '현장 정보를 수정');
     s.name = input.name.trim();
     s.address = input.address.trim();
+    if (input.workType !== undefined) {
+      if (!input.workType.trim()) {
+        throw new ApiError('공사 종류를 골라 주세요.');
+      }
+      s.workType = input.workType.trim().slice(0, 50);
+    }
     return dummyDb.getSite(userId, siteId);
   },
 
@@ -1028,29 +1025,11 @@ export const dummyDb = {
   getReportPage(
     userId: string,
     siteId: string,
-    opts: { cursor?: string | null; processKey?: string | null; size?: number },
+    opts: { cursor?: string | null; size?: number },
   ): ReportPage {
-    const s = findViewableSite(userId, siteId);
     const all = dummyDb.getReports(userId, siteId);
-    const list = opts.processKey
-      ? all.filter(r => r.processKey === opts.processKey)
-      : all;
-    const page = pageOf(list, opts.cursor, opts.size);
-    if (opts.cursor) {
-      return { ...page, total: null, processes: null };
-    }
-    const counts = new Map<string, number>();
-    all.forEach(r => counts.set(r.processKey, (counts.get(r.processKey) ?? 0) + 1));
-    const processes: ProcessCount[] = [];
-    s.processes.forEach(pr => {
-      const c = counts.get(pr.key);
-      if (c) {
-        processes.push({ key: pr.key, name: pr.name, count: c });
-        counts.delete(pr.key);
-      }
-    });
-    counts.forEach((c, k) => processes.push({ key: k, name: k, count: c }));
-    return { ...page, total: all.length, processes };
+    const page = pageOf(all, opts.cursor, opts.size);
+    return { ...page, total: opts.cursor ? null : all.length };
   },
 
   getHqReportPage(
@@ -1068,7 +1047,7 @@ export const dummyDb = {
         canEdit: false,
         canDelete: false,
       }));
-    return { ...pageOf(list, cursor, size), total: null, processes: null };
+    return { ...pageOf(list, cursor, size), total: null };
   },
 
   // 현장별 확인하지 않은 보고 수(볼 수 없는 현장은 뺀다)
@@ -1101,27 +1080,28 @@ export const dummyDb = {
   addReport(userId: string, input: NewReport): Report {
     const u = findUser(userId);
     const s = findMemberSite(userId, input.siteId);
-    const process = s.processes.find(p => p.key === input.processKey);
-    if (!process) {
-      throw new ApiError('존재하지 않는 공정입니다.');
+    const work = (input.work ?? '').trim();
+    if (!work) {
+      throw new ApiError('진행한 작업을 입력해 주세요.');
     }
-    if (
-      !Number.isFinite(input.to) ||
-      input.to < process.progress ||
-      input.to > 100
-    ) {
+    if (work.length > 100) {
+      throw new ApiError('진행한 작업은 100자까지 쓸 수 있어요.');
+    }
+    const current = s.progress ?? 0;
+    if (!Number.isFinite(input.to) || input.to < current || input.to > 100) {
       throw new ApiError(
-        `진행률은 마지막 보고 값(${process.progress}%) 이상, 100% 이하여야 해요.`,
+        `진행률은 지금 진행률(${current}%) 이상, 100% 이하여야 해요.`,
       );
     }
     const now = new Date().toISOString();
     const row: ReportRow = {
       id: `r-${Date.now()}`,
       siteId: s.id,
-      processKey: process.key,
-      processName: process.name,
-      from: process.progress,
-      to: input.to,
+      processKey: 'work',
+      processName: work.slice(0, 30),
+      work,
+      from: current,
+      to: Math.round(input.to * 10) / 10,
       photoUris: input.photoUris,
       // 데모 모드: 서버가 없으니 폰 안의 파일 주소를 그대로 둔다
       files: input.files.map(f => ({
@@ -1150,8 +1130,8 @@ export const dummyDb = {
       },
     };
     reports.push(row);
-    process.progress = input.to;
-    process.lastReportedAt = now;
+    s.progress = row.to;
+    s.lastReportedAt = now;
     return withPermissions(userId, row);
   },
 
@@ -1210,7 +1190,7 @@ export const dummyDb = {
     return withPermissions(userId, row);
   },
 
-  // 가장 최근 보고만 삭제 가능 → 공정 진행률을 보고 전 값으로 되돌린다
+  // 가장 최근 보고만 삭제 가능 → 현장 진행률을 보고 전 값으로 되돌린다
   deleteReport(userId: string, reportId: string) {
     const row = reports.find(r => r.id === reportId);
     if (!row) {
@@ -1219,14 +1199,12 @@ export const dummyDb = {
     const s = findMemberSite(userId, row.siteId);
     if (!withPermissions(userId, row).canDelete) {
       throw new ApiError(
-        '각 공정의 가장 최근 보고만, 작성자나 현장 관리자가 삭제할 수 있습니다.',
+        '현장의 가장 최근 보고만, 작성자나 현장 관리자가 삭제할 수 있습니다.',
       );
     }
     reports = reports.filter(r => r.id !== reportId);
-    const process = s.processes.find(p => p.key === row.processKey)!;
-    process.progress = row.from;
-    process.lastReportedAt =
-      latestOf(row.siteId, row.processKey)?.createdAt ?? null;
+    s.progress = row.from;
+    s.lastReportedAt = latestOf(row.siteId)?.createdAt ?? null;
   },
 
   // ---- 자재 요청 ----

@@ -51,3 +51,5 @@ jobs:
         run: npx tsc --noEmit
       - name: 코드 규칙 검사(ESLint)
         run: npx eslint src App.tsx
+      - name: 자동 테스트(공사 종류 검색)
+        run: npx jest __tests__/workTypes.test.ts
