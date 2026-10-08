@@ -1,4 +1,4 @@
-// 자재 요청 작성: 공정, 자재(이름·수량·단위) 여러 줄, 필요일, 긴급, 메모
+// 자재 요청 작성: 자재(이름·수량·단위) 여러 줄, 필요일, 긴급, 메모
 import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,

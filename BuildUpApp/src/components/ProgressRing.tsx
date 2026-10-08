@@ -1,4 +1,4 @@
-// 원형 진행률(계획서 화면 2: 현장 상세 상단). 계획 진행률은 원 위의 흰 눈금으로 표시
+// 원형 진행률(현장 상세 상단). planned를 주면 원 위에 흰 눈금도 그린다
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
