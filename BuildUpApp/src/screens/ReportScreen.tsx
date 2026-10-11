@@ -443,7 +443,7 @@ export default function ReportScreen({
         workLog: EMPTY_WORKLOG, // 날씨·인원·장비는 받지 않는다
       });
       // 제출 성공: 화면의 기준값을 바로 제출한 값으로(새로고침이 실패해도 중복 제출 안 되게)
-      const submittedWork = works.map(t => `#${t}`).join(' ');
+      const submittedWork = works.join(', ');
       const now = new Date().toISOString();
       setSite({ ...site, overallProgress: today, lastReportedAt: now });
       setValue(today);

@@ -68,8 +68,7 @@ export default function SubmitSheet(props: Props) {
             {/* 진행한 작업 */}
             <Text style={styles.workText} numberOfLines={3}>
               {splitWorks(props.work)
-                .map(t => `#${t}`)
-                .join('  ')}
+                .join(' · ')}
             </Text>
             <View style={[styles.diffChip, diff <= 0 && styles.diffZero]}>
               <Text style={[styles.diffText, diff <= 0 && styles.diffZeroText]}>
