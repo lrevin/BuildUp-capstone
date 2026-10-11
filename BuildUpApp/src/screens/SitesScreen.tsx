@@ -138,7 +138,7 @@ export default function SitesScreen({ navigation }: ScreenProps<'Sites'>) {
                   <EmptyBox
                     icon={<Building2 size={28} color={colors.textMuted} />}
                     title="아직 만든 현장이 없어요"
-                    desc={'새 현장을 만들고 참여 코드를\n작업자들에게 공유해 보세요.'}
+                    desc={'아래 공사 현장 추가에서 관리자를 골라\n새 현장을 만들어 보세요.'}
                   />
                 ) : isTop ? (
                   pairs.map(pair => (
@@ -175,7 +175,7 @@ export default function SitesScreen({ navigation }: ScreenProps<'Sites'>) {
                     icon={<KeyRound size={28} color={colors.textMuted} />}
                     title="아직 참여한 현장이 없어요"
                     desc={
-                      '현장 관리자에게 받은 6자리 코드를\n입력하면 현장이 여기에 나타나요.'
+                      '아래 공사 현장 추가에서 작업자를 골라\n관리자에게 받은 6자리 코드를 입력해 보세요.'
                     }
                   />
                 ) : (
@@ -190,26 +190,10 @@ export default function SitesScreen({ navigation }: ScreenProps<'Sites'>) {
       </ScrollView>
 
       <BottomBar>
-        {isAdmin ? (
-          <View style={styles.bottomRow}>
-            <Button
-              title="코드로 참여"
-              variant="outline"
-              onPress={() => navigation.navigate('JoinSite')}
-              style={styles.joinBtn}
-            />
-            <Button
-              title="새 현장 만들기"
-              onPress={() => navigation.navigate('CreateSite')}
-              style={styles.flex}
-            />
-          </View>
-        ) : (
-          <Button
-            title="코드로 현장 참여"
-            onPress={() => navigation.navigate('JoinSite')}
-          />
-        )}
+        <Button
+          title="공사 현장 추가"
+          onPress={() => navigation.navigate('AddSite')}
+        />
       </BottomBar>
     </View>
   );
@@ -378,8 +362,6 @@ const styles = StyleSheet.create({
   address: { fontSize: 13, color: colors.textSub, marginTop: 4 },
   hqLine: { fontSize: 12, fontWeight: '600', color: '#2563EB', marginTop: 4 },
   gridRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-  bottomRow: { flexDirection: 'row', gap: 8 },
-  joinBtn: { paddingHorizontal: 18 },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',

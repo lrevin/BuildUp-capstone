@@ -15,6 +15,7 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   Sites: undefined;
   Profile: undefined;
+  AddSite: undefined; // 공사 현장 추가: 작업자 / 관리자 고르기
   CreateSite: undefined;
   SiteCode: {
     siteId: string;
@@ -30,7 +31,7 @@ export type AppStackParamList = {
   ReportDetail: { report: Report };
   Members: { siteId: string; siteName: string; isOwner: boolean };
   Materials: { siteId: string; siteName: string };
-  ManagerSetup: undefined; // 현장 관리자로 전환 / 보고 체계 변경
+  ManagerSetup: { next?: 'CreateSite' } | undefined; // 현장 관리자로 전환 / 보고 체계 변경 (next: 전환 뒤 갈 화면)
   // 본사 관계자 화면
   HqHome: undefined;
   HqReports: { siteId?: string; siteName?: string }; // siteId가 없으면 전체 현장

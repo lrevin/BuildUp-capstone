@@ -19,7 +19,9 @@ import { colors, radius } from '../theme';
 
 export default function ManagerSetupScreen({
   navigation,
+  route,
 }: ScreenProps<'ManagerSetup'>) {
+  const next = route.params?.next;
   const user = useUser();
   const { setUser } = useAuth();
   const dialog = useDialog();
@@ -79,7 +81,11 @@ export default function ManagerSetupScreen({
         isWorker ? '현장 관리자로 전환했어요' : '보고 체계를 바꿨어요',
         'success',
       );
-      navigation.goBack();
+      if (next) {
+        navigation.replace(next);
+      } else {
+        navigation.goBack();
+      }
     } catch (e) {
       dialog.notice({
         icon: 'danger',

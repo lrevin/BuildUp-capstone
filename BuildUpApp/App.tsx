@@ -12,6 +12,7 @@ import { DialogProvider, useDialog } from './src/components/Dialog';
 import { PushData, listenPush, registerPush } from './src/push';
 import { Logo } from './src/components/ui';
 import { RootStackParamList } from './src/navigation';
+import AddSiteScreen from './src/screens/AddSiteScreen';
 import CreateSiteScreen from './src/screens/CreateSiteScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import HqHomeScreen from './src/screens/HqHomeScreen';
@@ -92,6 +93,7 @@ function RootNavigator() {
         <>
           <Stack.Screen name="Sites" component={SitesScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="AddSite" component={AddSiteScreen} />
           <Stack.Screen name="CreateSite" component={CreateSiteScreen} />
           <Stack.Screen name="SiteCode" component={SiteCodeScreen} />
           <Stack.Screen name="SiteSettings" component={SiteSettingsScreen} />
