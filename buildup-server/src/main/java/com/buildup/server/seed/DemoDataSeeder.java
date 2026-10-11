@@ -80,6 +80,34 @@ public class DemoDataSeeder implements CommandLineRunner {
             log.info("시스템 관리자 데모 계정을 추가합니다.");
             user("시스템 관리자", "sys@buildup.kr", "010-0000-0000", Role.SYSTEM, "Build Up 운영팀");
         }
+        seedDemoInterior();
+    }
+
+    /**
+     * 개발·시연용 인테리어 현장. 참여 코드는 000000으로 고정(재발급 불가)이고, 지워져도 서버를 켜면 다시 생긴다.
+     * 관리자 이영호(admin@), 작업자 김철수(worker@)가 처음부터 참여. 진행률 0%에서 시작
+     */
+    private void seedDemoInterior() {
+        if (sites.findByCode(Site.DEMO_CODE).isPresent()) {
+            return;
+        }
+        User admin = users.findByEmail("admin@buildup.kr").orElse(null);
+        if (admin == null) {
+            return;
+        }
+        log.info("데모 인테리어 현장(코드 000000)을 만듭니다.");
+        Site s = new Site();
+        s.setName("데모 인테리어 현장 (아파트 리모델링)");
+        s.setAddress("강원 원주시 단계동 데모아파트 101동 1203호");
+        s.setOwner(admin);
+        s.setCode(Site.DEMO_CODE);
+        s.setWorkType("아파트 리모델링");
+        s.setProgress(0.0);
+        s.setCompany(admin.getManagerCompany());
+        Instant now = Instant.now();
+        s.getMembers().add(new SiteMember(s, admin, now));
+        users.findByEmail("worker@buildup.kr").ifPresent(w -> s.getMembers().add(new SiteMember(s, w, now)));
+        sites.save(s);
     }
 
     /**

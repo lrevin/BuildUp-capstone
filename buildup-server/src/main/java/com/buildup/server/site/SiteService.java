@@ -89,7 +89,7 @@ public class SiteService {
         String code;
         do {
             code = String.format("%06d", RANDOM.nextInt(1_000_000));
-        } while (sites.existsByCode(code));
+        } while (Site.DEMO_CODE.equals(code) || sites.existsByCode(code));
         return code;
     }
 
@@ -225,6 +225,9 @@ public class SiteService {
     @Transactional
     public String regenerateCode(Long userId, Long siteId) {
         Site site = ownedSite(userId, siteId, "코드를 재발급");
+        if (Site.DEMO_CODE.equals(site.getCode())) {
+            throw ApiException.badRequest("데모 현장 코드는 000000으로 고정이라 바꿀 수 없어요.");
+        }
         site.setCode(newCode());
         return site.getCode();
     }

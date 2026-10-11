@@ -34,6 +34,9 @@ import {
 } from '../types';
 import { addDays, toYMD } from '../utils/plan';
 
+// 개발·시연용 데모 인테리어 현장의 고정 참여 코드(재발급 불가)
+export const DEMO_CODE = '000000';
+
 // 예전 방식(공정별 진행률) 데모 데이터를 만들 때만 쓰는 모양. 만든 뒤 현장 전체 진행률로 바꾼다(toSiteLevel)
 interface Process {
   key: string;
@@ -407,6 +410,19 @@ function makeSeed(): DummyState {
     { key: 'interior', name: '내장 마감', final: 10, lastDaysAgo: 0, every: 1, count: 1, authors: [PARK], memos: ['거실 벽지 제거 시작.'] },
   ];
 
+  // 개발·시연용 인테리어 현장: 참여 코드 000000 고정(재발급 불가), 진행률 0%에서 시작 (서버 DemoDataSeeder와 같음)
+  sites.push({
+    id: 'site-demo',
+    name: '데모 인테리어 현장 (아파트 리모델링)',
+    address: '강원 원주시 단계동 데모아파트 101동 1203호',
+    ownerId: 'u-admin',
+    code: DEMO_CODE,
+    companyId: 'c-1',
+    memberIds: ['u-admin', 'u-worker'],
+    joinedAt: { 'u-admin': hourAt(0, 8), 'u-worker': hourAt(0, 8) },
+    processes: [],
+  });
+
   const seq = { n: 1 };
   const reports = [
     ...hanbitSpecs.flatMap(s => makeHistory('site-1', s, seq, 'u-admin')),
@@ -423,6 +439,7 @@ const DEMO_WORK_TYPES: Record<string, string> = {
   '482915': '건축 신축 공사',
   '731046': '증축 공사',
   '615203': '주택 리모델링 공사',
+  [DEMO_CODE]: '아파트 리모델링',
 };
 function toSiteLevel(siteRows: SiteRow[], reportRows: ReportRow[]) {
   for (const site of siteRows) {
@@ -641,7 +658,7 @@ function newCode(taken: (code: string) => boolean) {
   let code: string;
   do {
     code = String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
-  } while (taken(code));
+  } while (code === DEMO_CODE || taken(code));
   return code;
 }
 
@@ -936,6 +953,9 @@ export const dummyDb = {
 
   regenerateCode(userId: string, siteId: string): string {
     const s = findOwnedSite(userId, siteId, '코드를 재발급');
+    if (s.code === DEMO_CODE) {
+      throw new ApiError('데모 현장 코드는 000000으로 고정이라 바꿀 수 없어요.');
+    }
     s.code = newCode(code => sites.some(x => x.code === code));
     return s.code;
   },

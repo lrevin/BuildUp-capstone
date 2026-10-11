@@ -29,6 +29,9 @@ import lombok.Setter;
 @NoArgsConstructor
 public class Site {
 
+    /** 개발·시연용 데모 인테리어 현장의 고정 참여 코드(재발급 불가, 새 현장에는 발급 안 함) */
+    public static final String DEMO_CODE = "000000";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

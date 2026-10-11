@@ -255,6 +255,22 @@ class ApiFlowTests {
                 .status()).isEqualTo(400);
     }
 
+    @Test
+    void 데모_인테리어_현장은_코드_000000_고정() throws Exception {
+        String choi = token("choi@buildup.kr");
+        Res preview = send("GET", "/api/sites/code/000000", choi, null);
+        assertThat(preview.status()).isEqualTo(200);
+        assertThat(preview.body().get("name").toString()).contains("데모 인테리어");
+
+        Map<String, Object> demo = send("GET", "/api/sites", admin, null).list().stream()
+                .map(o -> (Map<String, Object>) o)
+                .filter(m -> "아파트 리모델링".equals(m.get("workType")) && Boolean.TRUE.equals(m.get("isOwner")))
+                .findFirst().orElseThrow();
+        Res again = send("POST", "/api/sites/" + demo.get("id") + "/code", admin, null);
+        assertThat(again.status()).isEqualTo(400);
+        assertThat(send("GET", "/api/sites/" + demo.get("id"), admin, null).body().get("code")).isEqualTo("000000");
+    }
+
     // ---------- 도움 함수 ----------
 
     private String token(String email) throws Exception {
@@ -322,7 +338,8 @@ class ApiFlowTests {
         for (var e : fields.entrySet()) {
             field(body, boundary, e.getKey(), e.getValue());
         }
-        body.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
         HttpRequest req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/sites/" + siteId + "/reports"))
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
