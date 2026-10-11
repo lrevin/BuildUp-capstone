@@ -70,7 +70,8 @@ export const dummyStore = {
 // ---- 보고 작성 임시저장 ----
 
 export interface ReportDraft {
-  work: string; // 진행한 작업
+  work: string; // 진행한 작업(태그를 ', '로 이어 붙임)
+  workText?: string; // 아직 태그가 안 된 입력 중인 작업
   value: number; // 입력 중인 현장 전체 진행률
   memo: string;
   photoUris: string[];

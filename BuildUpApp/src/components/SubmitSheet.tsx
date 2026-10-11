@@ -11,23 +11,22 @@ import { Text } from './Text';
 import {
   Camera,
   CircleAlert,
-  HardHat,
   NotebookPen,
   Paperclip,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius } from '../theme';
+import { splitWorks } from '../utils/works';
 
 interface Props {
   visible: boolean;
   siteName: string;
-  processName: string; // 진행한 작업
+  work: string; // 진행한 작업('방수, 도배')
   from: number;
   to: number;
   photoCount: number;
   fileCount: number;
   memo: string;
-  workLog: string; // '맑음 · 12명 · 타워크레인 1' (없으면 빈 문자열)
   submitting?: boolean;
   onClose: () => void;
   onSubmit: () => void;
@@ -68,7 +67,9 @@ export default function SubmitSheet(props: Props) {
           <View style={styles.heroTop}>
             {/* 진행한 작업 */}
             <Text style={styles.workText} numberOfLines={3}>
-              {props.processName}
+              {splitWorks(props.work)
+                .map(t => `#${t}`)
+                .join('  ')}
             </Text>
             <View style={[styles.diffChip, diff <= 0 && styles.diffZero]}>
               <Text style={[styles.diffText, diff <= 0 && styles.diffZeroText]}>
@@ -100,16 +101,6 @@ export default function SubmitSheet(props: Props) {
             <Text style={styles.rowValue}>{props.fileCount}개</Text>
           </View>
         ) : null}
-        <View style={styles.row}>
-          <HardHat size={18} color={colors.textMuted} />
-          <Text style={styles.rowLabel}>작업</Text>
-          <Text
-            style={[styles.rowValue, !props.workLog && styles.rowEmpty]}
-            numberOfLines={1}
-          >
-            {props.workLog || '입력 안 함'}
-          </Text>
-        </View>
         <View style={styles.row}>
           <NotebookPen size={18} color={colors.textMuted} />
           <Text style={styles.rowLabel}>메모</Text>

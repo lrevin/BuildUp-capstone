@@ -48,12 +48,9 @@ import { useAuth, useUser } from '../auth';
 import { useDialog } from '../components/Dialog';
 import MenuSheet from '../components/MenuSheet';
 import ProgressRing from '../components/ProgressRing';
-import {
-  EMPTY_WORKLOG,
-  WorkLogFields,
-  isWorkLogEmpty,
-  workLogSummary,
-} from '../components/WorkLog';
+import { EMPTY_WORKLOG } from '../components/WorkLog';
+import { WorkTagInput } from '../components/WorkTags';
+import { addWork, joinWorks, splitWorks } from '../utils/works';
 import PhotoViewer from '../components/PhotoViewer';
 import SubmitSheet from '../components/SubmitSheet';
 import {
@@ -66,12 +63,11 @@ import {
 import { MAX_PHOTOS } from '../data/dummy';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
-import { MaterialRequest, PickedFile, Site, WorkLog } from '../types';
+import { MaterialRequest, PickedFile, Site } from '../types';
 import { draftStore } from '../data/storage';
 import { formatDate, formatTime, isToday, pct } from '../utils/format';
 
 const STEP = 1;
-const WORK_MAX = 100;
 const MAX_FILES = 5;
 const MAX_FILE_MB = 20;
 // 첨부할 수 있는 문서(서버 FileStorage.DOC_ALLOWED와 같음)
@@ -100,8 +96,8 @@ export default function ReportScreen({
   const dialog = useDialog();
   const [site, setSite] = useState<Site | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [work, setWork] = useState(''); // 진행한 작업
-  const [workFocused, setWorkFocused] = useState(false);
+  const [works, setWorks] = useState<string[]>([]); // 진행한 작업(태그)
+  const [workText, setWorkText] = useState(''); // 아직 태그가 안 된 입력 중인 작업
   const [files, setFiles] = useState<PickedFile[]>([]);
   // 입력 중인 현장 전체 진행률(보고하는 사람이 판단). null = 아직 불러오기 전
   const [value, setValue] = useState<number | null>(null);
@@ -112,7 +108,6 @@ export default function ReportScreen({
   const [menuOpen, setMenuOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [photos, setPhotos] = useState<Asset[]>([]);
-  const [workLog, setWorkLog] = useState<WorkLog>(EMPTY_WORKLOG);
   const [viewing, setViewing] = useState<number | null>(null);
   const [materials, setMaterials] = useState<MaterialRequest[]>([]);
   // 임시저장: 처음 한 번 불러온 뒤부터 입력이 바뀔 때마다 저장
@@ -138,13 +133,11 @@ export default function ReportScreen({
         const draft = await draftStore.load(user.id, siteId);
         if (draft) {
           base = Math.min(100, Math.max(base, draft.value ?? base));
-          setWork(draft.work ?? '');
+          setWorks(splitWorks(draft.work));
+          setWorkText(draft.workText ?? '');
           setMemo(draft.memo);
           setPhotos(draft.photoUris.map(uri => ({ uri })));
           setFiles(draft.files ?? []);
-          if (draft.workLog) {
-            setWorkLog(draft.workLog);
-          }
           setRestoredAt(draft.savedAt);
         }
         setValue(base);
@@ -172,33 +165,33 @@ export default function ReportScreen({
       const changed = value !== site.overallProgress;
       if (
         !changed &&
-        !work.trim() &&
+        works.length === 0 &&
+        !workText.trim() &&
         !memo.trim() &&
         photos.length === 0 &&
-        files.length === 0 &&
-        isWorkLogEmpty(workLog)
+        files.length === 0
       ) {
         draftStore.clear(user.id, siteId);
         return;
       }
       draftStore.save(user.id, siteId, {
-        work,
+        work: joinWorks(works),
+        workText,
         value,
         memo,
         photoUris: photos.map(p => p.uri!),
         files,
-        workLog,
         savedAt: new Date().toISOString(),
       });
     }, 500);
     return () => clearTimeout(t);
-  }, [site, value, work, memo, photos, files, workLog, user.id, siteId]);
+  }, [site, value, works, workText, memo, photos, files, user.id, siteId]);
 
   const discardDraft = async () => {
     const ok = await dialog.confirm({
       title: '새로 작성할까요?',
       message:
-        '임시저장된 진행한 작업, 진행률, 사진, 첨부 파일, 작업 정보, 메모가 지워져요.',
+        '임시저장된 진행한 작업, 진행률, 사진, 첨부 파일, 메모가 지워져요.',
       confirmText: '지우기',
       danger: true,
     });
@@ -208,11 +201,11 @@ export default function ReportScreen({
     if (site) {
       setValue(site.overallProgress);
     }
-    setWork('');
+    setWorks([]);
+    setWorkText('');
     setMemo('');
     setPhotos([]);
     setFiles([]);
-    setWorkLog(EMPTY_WORKLOG);
     setRestoredAt(null);
     draftStore.clear(user.id, siteId);
   };
@@ -409,14 +402,25 @@ export default function ReportScreen({
     }
   };
 
-  // 보고 제출 버튼: 진행한 작업은 꼭 적어야 한다
+  const workFull = () =>
+    dialog.toast('진행한 작업은 모두 합쳐 100자까지 넣을 수 있어요', 'error');
+
+  // 보고 제출 버튼: 진행한 작업은 꼭 하나 이상. 입력하다 만 글자도 태그로 넣는다
   const openSubmit = () => {
-    if (!work.trim()) {
+    const next = addWork(works, workText);
+    if (next === null) {
+      workFull();
+      return;
+    }
+    setWorks(next);
+    setWorkText('');
+    if (next.length === 0) {
       dialog.toast('진행한 작업을 적어 주세요', 'error');
       return;
     }
     setSheetOpen(true);
   };
+  const work = joinWorks(works);
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -424,23 +428,22 @@ export default function ReportScreen({
     const submittedPhotos = photos.length;
     const submittedFiles = files.length;
     const submittedMemo = !!memo.trim();
-    const submittedLog = workLogSummary(workLog);
     try {
       // 제출 위치(휴대폰 GPS). 위치 권한을 안 주면 위치 없이 제출
       const place = await currentPlace();
       await submitReport({
         siteId: site.id,
-        work: work.trim(),
+        work,
         to: today,
         photoUris: photos.map(p => p.uri!),
         photoTakenAt: photos.map(p => p.timestamp ?? null),
         location: place,
         files,
         memo: memo.trim(),
-        workLog: { ...workLog, equipment: workLog.equipment.trim() },
+        workLog: EMPTY_WORKLOG, // 날씨·인원·장비는 받지 않는다
       });
       // 제출 성공: 화면의 기준값을 바로 제출한 값으로(새로고침이 실패해도 중복 제출 안 되게)
-      const submittedWork = work.trim();
+      const submittedWork = works.map(t => `#${t}`).join(' ');
       const now = new Date().toISOString();
       setSite({ ...site, overallProgress: today, lastReportedAt: now });
       setValue(today);
@@ -452,11 +455,11 @@ export default function ReportScreen({
           lastBase.current = updated.overallProgress;
         })
         .catch(() => {});
-      setWork('');
+      setWorks([]);
+      setWorkText('');
       setPhotos([]);
       setFiles([]);
       setMemo('');
-      setWorkLog(EMPTY_WORKLOG);
       setRestoredAt(null);
       draftStore.clear(user.id, site.id);
       setSheetOpen(false);
@@ -469,8 +472,7 @@ export default function ReportScreen({
           )}%p)\n` +
           `사진 ${submittedPhotos}장` +
           (submittedFiles ? ` · 파일 ${submittedFiles}개` : '') +
-          (submittedMemo ? ' · 메모 포함' : '') +
-          (submittedLog ? `\n${submittedLog}` : ''),
+          (submittedMemo ? ' · 메모 포함' : ''),
         actions: [
           { label: '이력 보기', value: 'history', variant: 'secondary' },
           { label: '확인', value: 'ok', variant: 'primary' },
@@ -582,22 +584,18 @@ export default function ReportScreen({
           <Card style={styles.gap}>
             <View style={styles.fileTitleRow}>
               <Text style={styles.cardTitleInline}>진행한 작업</Text>
-              <Text style={styles.fileCount}>
-                {work.length}/{WORK_MAX}
-              </Text>
+              <Text style={styles.fileCount}>{works.length}개</Text>
             </View>
-            <TextInput
-              style={[styles.workInput, workFocused && styles.memoFocused]}
-              value={work}
-              onChangeText={t => setWork(t.slice(0, WORK_MAX))}
-              onFocus={() => setWorkFocused(true)}
-              onBlur={() => setWorkFocused(false)}
-              placeholder="예) 2층 욕실 방수, 거실 도배, 5층 전기 배선"
-              placeholderTextColor={colors.textMuted}
-              maxLength={WORK_MAX}
-              multiline
-              textAlignVertical="top"
+            <WorkTagInput
+              tags={works}
+              onChange={setWorks}
+              text={workText}
+              onChangeText={setWorkText}
+              onFull={workFull}
             />
+            <Text style={styles.hint}>
+              하나 입력하고 완료(↵)를 누르면 태그로 들어가요. 태그를 누르면 지워져요.
+            </Text>
           </Card>
 
           {/* 현장 전체 진행률 */}
@@ -781,12 +779,6 @@ export default function ReportScreen({
             </Text>
           </Card>
 
-          {/* 작업 정보(작업일보) */}
-          <Card style={styles.gap}>
-            <Text style={styles.cardTitle}>작업 정보</Text>
-            <WorkLogFields value={workLog} onChange={setWorkLog} />
-          </Card>
-
           {/* 작업 메모 */}
           <Card style={styles.gap}>
             <Text style={styles.cardTitle}>작업 메모</Text>
@@ -843,12 +835,11 @@ export default function ReportScreen({
       <SubmitSheet
         visible={sheetOpen}
         siteName={site.name}
-        processName={work.trim()}
+        work={work}
         from={base}
         to={today}
         photoCount={photos.length}
         fileCount={files.length}
-        workLog={workLogSummary(workLog)}
         memo={memo}
         submitting={submitting}
         onClose={() => setSheetOpen(false)}
