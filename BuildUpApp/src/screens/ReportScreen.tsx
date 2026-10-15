@@ -594,7 +594,7 @@ export default function ReportScreen({
               onFull={workFull}
             />
             <Text style={styles.hint}>
-              하나 입력하고 완료(↵)를 누르면 태그로 들어가요. 태그를 누르면 지워져요.
+              하나 입력하고 완료(↵)를 누르면 위에 한 줄씩 들어가요. ✕를 누르면 지워져요.
             </Text>
           </Card>
 

@@ -1,5 +1,5 @@
-// 진행한 작업 태그: 해시태그처럼 하나 입력하고 완료(↵)를 누르면 강조된 칩으로 들어가고
-// 이어서 다음 작업을 입력한다. 서버에는 ', '로 이어 붙인 글자 하나로 보낸다(전체 100자까지)
+// 진행한 작업: 하나 입력하고 완료(↵)를 누르면 위 목록에 한 줄로 들어가고
+// 이어서 다음 작업을 입력한다(태그 모양 없이 글자만). 서버에는 ', '로 이어 붙인 글자 하나로 보낸다(전체 100자까지)
 import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Plus, X } from 'lucide-react-native';
@@ -8,7 +8,7 @@ import { Text } from './Text';
 
 import { TAG_MAX, addWork, splitWorks } from '../utils/works';
 
-/** 입력용: 칩 + 입력칸 */
+/** 입력용: 작업 목록 + 입력칸 */
 export function WorkTagInput({
   tags,
   onChange,
@@ -62,18 +62,18 @@ export function WorkTagInput({
       onPress={() => input.current?.focus()}
     >
       {tags.length > 0 ? (
-        <View style={styles.chips}>
+        <View style={styles.list}>
           {tags.map(t => (
-            <Pressable
-              key={t}
-              style={styles.chip}
-              onPress={() => onChange(tags.filter(x => x !== t))}
-              accessibilityLabel={`${t} 지우기`}
-              hitSlop={4}
-            >
-              <Text style={styles.chipText}>{t}</Text>
-              <X size={14} color={colors.white} strokeWidth={2.6} />
-            </Pressable>
+            <View key={t} style={styles.item}>
+              <Text style={styles.itemText}>{t}</Text>
+              <Pressable
+                onPress={() => onChange(tags.filter(x => x !== t))}
+                accessibilityLabel={`${t} 지우기`}
+                hitSlop={10}
+              >
+                <X size={16} color={colors.textMuted} strokeWidth={2.4} />
+              </Pressable>
+            </View>
           ))}
         </View>
       ) : null}
@@ -111,15 +111,15 @@ export function WorkTagInput({
   );
 }
 
-/** 보기용: 제출 확인·보고 상세에서 칩으로 보여 준다 */
+/** 보기용: 보고 상세에서 작업을 한 줄씩 보여 준다 */
 export function WorkTagList({ work }: { work: string }) {
   const tags = splitWorks(work);
   return (
-    <View style={styles.chips}>
+    <View style={styles.viewList}>
       {tags.map(t => (
-        <View key={t} style={[styles.chip, styles.chipStatic]}>
-          <Text style={styles.chipText}>{t}</Text>
-        </View>
+        <Text key={t} style={styles.viewText}>
+          {t}
+        </Text>
       ))}
     </View>
   );
@@ -137,19 +137,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   boxFocused: { backgroundColor: colors.white, borderColor: colors.navy },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
+  list: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: 4,
+  },
+  item: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.navy,
-    borderRadius: 999,
-    paddingLeft: 12,
-    paddingRight: 10,
+    gap: 10,
     paddingVertical: 7,
+    paddingHorizontal: 2,
   },
-  chipStatic: { paddingRight: 12 },
-  chipText: { fontSize: 14, fontWeight: '700', color: colors.white },
+  itemText: { flex: 1, fontSize: 16, fontWeight: '600', color: colors.text },
+  viewList: { gap: 4 },
+  viewText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    lineHeight: 26,
+  },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   input: {
     flex: 1,
