@@ -15,6 +15,26 @@ export const API_BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) || 'http://127.0.0.1:8080/api';
 
 const TOKEN_KEY = 'buildup.web.token';
+const REFRESH_KEY = 'buildup.web.refresh';
+
+export function getRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** 로그인·갱신 응답의 토큰 저장(null이면 모두 지우기) */
+export function saveTokens(res: AuthResponse | null) {
+  setToken(res?.accessToken ?? null);
+  try {
+    if (res?.refreshToken) localStorage.setItem(REFRESH_KEY, res.refreshToken);
+    else localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    /* 저장소를 못 쓰면 이번 창에서만 유지 */
+  }
+}
 
 export function getToken(): string | null {
   try {
@@ -47,12 +67,41 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
+// 접근 토큰이 만료되면(401) 리프레시 토큰으로 한 번만 새로 받아 다시 보낸다(동시에 여러 번 와도 갱신은 한 번)
+let refreshing: Promise<string | null> | null = null;
+function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return Promise.resolve(null);
+  refreshing ??= axios
+    .post<AuthResponse>(`${API_BASE}/auth/refresh`, { refreshToken }, { timeout: 20000 })
+    .then((res) => {
+      saveTokens(res.data);
+      return res.data.accessToken;
+    })
+    .catch(() => null)
+    .finally(() => {
+      refreshing = null;
+    });
+  return refreshing;
+}
+
+const NO_REFRESH = ['/auth/login', '/auth/refresh', '/auth/logout'];
+
 api.interceptors.response.use(
   (res) => res,
-  (err: AxiosError) => {
-    const url = err.config?.url ?? '';
-    if (err.response?.status === 401 && !url.includes('/auth/login')) {
-      setToken(null);
+  async (err: AxiosError) => {
+    const req = err.config as (typeof err.config & { _retried?: boolean }) | undefined;
+    const url = req?.url ?? '';
+    if (err.response?.status === 401 && !NO_REFRESH.some((u) => url.includes(u))) {
+      if (req && !req._retried) {
+        const next = await refreshAccessToken();
+        if (next) {
+          req._retried = true;
+          req.headers.Authorization = `Bearer ${next}`;
+          return api.request(req);
+        }
+      }
+      saveTokens(null);
       onUnauthorized?.();
     }
     return Promise.reject(err);
@@ -76,7 +125,7 @@ export async function login(email: string, password: string) {
   return (await api.post<AuthResponse>('/auth/login', { email, password })).data;
 }
 export async function logout() {
-  await api.post('/auth/logout');
+  await api.post('/auth/logout', { refreshToken: getRefreshToken() });
 }
 export async function me() {
   return (await api.get<User>('/auth/me')).data;

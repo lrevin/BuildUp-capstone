@@ -30,7 +30,21 @@ public final class AuthDtos {
             // 본사 관계자: companyCode가 있으면 그 본사에 합류, 없으면 company 이름으로 새 본사 등록
             String companyCode) {}
 
-    public record AuthResponse(UserDto user, String token) {}
+    /**
+     * 로그인·가입·토큰 갱신 응답(앱·웹 공통).
+     *   accessToken: API를 부를 때 Authorization: Bearer 로 보낸다(기본 60분)
+     *   refreshToken: 접근 토큰이 만료되면 POST /api/auth/refresh { refreshToken } 로 새 접근 토큰을 받는다(기본 30일)
+     */
+    public record AuthResponse(
+            UserDto user,
+            String accessToken,
+            String refreshToken,
+            String tokenType,
+            String accessTokenExpiresAt,
+            String refreshTokenExpiresAt) {}
+
+    /** 토큰 갱신·로그아웃 요청: { refreshToken } */
+    public record RefreshRequest(String refreshToken) {}
 
     /** 현장 관리자 전환·보고 체계 변경: companyCode 비우면 최고 책임자 */
     public record ManagerRequest(String companyCode, String company, Boolean linkSites) {}

@@ -28,14 +28,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     API.me()
       .then((u) => {
         if (u.role === 'worker') {
-          API.setToken(null);
+          API.saveTokens(null);
           setUser(null);
         } else {
           setUser(u);
         }
       })
       .catch(() => {
-        API.setToken(null);
+        API.saveTokens(null);
         setUser(null);
       })
       .finally(() => setReady(true));
@@ -46,18 +46,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await API.login(email, password);
     if (res.user.role === 'worker') {
       // 작업자 토큰은 쓰지 않는다: 서버 세션도 바로 정리
-      API.setToken(res.token);
+      API.saveTokens(res);
       await API.logout().catch(() => undefined);
-      API.setToken(null);
+      API.saveTokens(null);
       throw new Error(WORKER_MESSAGE);
     }
-    API.setToken(res.token);
+    API.saveTokens(res);
     setUser(res.user);
   }, []);
 
   const signOut = useCallback(async () => {
     await API.logout().catch(() => undefined);
-    API.setToken(null);
+    API.saveTokens(null);
     setUser(null);
   }, []);
 

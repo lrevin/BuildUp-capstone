@@ -51,6 +51,17 @@ public class User {
     private Company hqCompany;
 
     /**
+     * 본사 관계자만: 본사 관리자 여부(보고 검토·자재 승인 가능).
+     * 새 본사를 등록한 사람 true, 본사 코드로 합류한 사람 false. null(이 값이 생기기 전 계정)은 관리자로 본다.
+     */
+    private Boolean hqManager;
+
+    /** 본사 관리자인가(본사 관계자 + 관리자) */
+    public boolean isHqManager() {
+        return role == Role.HQ && hqCompany != null && !Boolean.FALSE.equals(hqManager);
+    }
+
+    /**
      * 현장 관리자만: 보고하는 본사. 없으면 본사 없이 운영하는 최고 책임자.
      * 이 관리자가 새로 만드는 현장은 이 본사에 자동으로 연결된다.
      */

@@ -9,6 +9,7 @@ import {
   sessionStore,
 } from '../data/storage';
 import {
+  AuthResponse,
   CreateSiteInput,
   HqInfo,
   ManagerInput,
@@ -36,6 +37,7 @@ import {
   fakeDelay,
   requireUserId,
   session,
+  setTokenRefreshedHandler,
 } from './client';
 
 // 더미 모드: 데이터를 바꾸는 호출 뒤에 폰에 저장
@@ -51,12 +53,26 @@ async function dummyRead<T>(fn: () => T, ms = 300): Promise<T> {
   return fn();
 }
 
-function startSession(user: User, token: string | null) {
+function startSession(user: User, auth: AuthResponse | null) {
   session.userId = user.id;
-  session.token = token;
-  sessionStore.save({ userId: user.id, token, user });
+  session.token = auth?.accessToken ?? null;
+  session.refreshToken = auth?.refreshToken ?? null;
+  sessionStore.save({
+    userId: user.id,
+    token: session.token,
+    refreshToken: session.refreshToken,
+    user,
+  });
   return user;
 }
+
+// 접근 토큰을 새로 받으면 저장해 둔다(앱을 다시 켜도 이어서 쓰게)
+setTokenRefreshedHandler(accessToken => {
+  sessionStore
+    .load()
+    .then(saved => saved && sessionStore.save({ ...saved, token: accessToken }))
+    .catch(() => {});
+});
 
 // ---- 서버 연결 설정 ----
 
@@ -90,6 +106,7 @@ export async function restoreSession(): Promise<User | null> {
   }
   session.userId = saved.userId;
   session.token = saved.token;
+  session.refreshToken = saved.refreshToken ?? null;
   try {
     if (config.useDummy) {
       const user = dummyDb.getUser(saved.userId);
@@ -116,39 +133,40 @@ export async function login(email: string, password: string): Promise<User> {
     await fakeDelay();
     return startSession(dummyDb.login(email, password), null);
   }
-  const res = await api.post<{ user: User; token: string }>('/auth/login', {
+  const res = await api.post<AuthResponse>('/auth/login', {
     email,
     password,
   });
-  return startSession(res.data.user, res.data.token);
+  return startSession(res.data.user, res.data);
 }
 
 export async function signUp(input: SignUpInput): Promise<User> {
   if (config.useDummy) {
     return startSession(await dummyWrite(() => dummyDb.signUp(input)), null);
   }
-  const res = await api.post<{ user: User; token: string }>(
-    '/auth/signup',
-    input,
-  );
-  return startSession(res.data.user, res.data.token);
+  const res = await api.post<AuthResponse>('/auth/signup', input);
+  return startSession(res.data.user, res.data);
 }
 
 export function logout() {
   if (!config.useDummy && session.token) {
     // 서버의 토큰도 지운다(실패해도 앱에서는 로그아웃)
     const token = session.token; // 아래에서 지우기 전에 기억
-    // 이 휴대폰 알림 등록을 먼저 지우고(로그인 토큰이 필요) 로그아웃
+    const refreshToken = session.refreshToken;
+    // 이 휴대폰 알림 등록을 먼저 지우고(로그인 토큰이 필요) 로그아웃(접근·리프레시 토큰 모두 무효)
     unregisterPush(token)
       .then(() =>
-        api.post('/auth/logout', null, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        api.post(
+          '/auth/logout',
+          { refreshToken },
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
       )
       .catch(() => {});
   }
   session.userId = null;
   session.token = null;
+  session.refreshToken = null;
   sessionStore.clear();
 }
 
@@ -301,8 +319,9 @@ export async function fetchReportPage(
   if (opts.cursor) {
     params.cursor = opts.cursor;
   }
-  return (await api.get<ReportPage>(`/sites/${siteId}/reports/page`, { params }))
-    .data;
+  return (
+    await api.get<ReportPage>(`/sites/${siteId}/reports/page`, { params })
+  ).data;
 }
 
 /** 현장별 확인하지 않은 보고 수(홈 화면 빨간 숫자). 서버가 세어서 숫자만 준다 */
@@ -315,9 +334,8 @@ export async function fetchUnreadCounts(
   if (config.useDummy) {
     return dummyRead(() => dummyDb.getUnread(requireUserId(), seen));
   }
-  return (
-    await api.post<Record<string, number>>('/reports/unread', { seen })
-  ).data;
+  return (await api.post<Record<string, number>>('/reports/unread', { seen }))
+    .data;
 }
 
 /** 작업일보 엑셀: 10분짜리 내려받기 주소를 받아 브라우저로 연다. from/to는 YYYY-MM-DD */
@@ -539,8 +557,7 @@ export async function previewCompany(code: string): Promise<string> {
   if (config.useDummy) {
     return dummyRead(() => dummyDb.previewCompany(code), 400);
   }
-  return (await api.get<{ name: string }>(`/companies/code/${code}`)).data
-    .name;
+  return (await api.get<{ name: string }>(`/companies/code/${code}`)).data.name;
 }
 
 export async function linkCompany(siteId: string, code: string): Promise<Site> {

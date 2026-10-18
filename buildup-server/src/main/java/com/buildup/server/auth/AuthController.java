@@ -24,7 +24,7 @@ public class AuthController {
 
     private final AuthService auth;
 
-    @Operation(summary = "로그인 → { user, token }")
+    @Operation(summary = "로그인 → { user, accessToken, refreshToken, tokenType, accessTokenExpiresAt, refreshTokenExpiresAt }")
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest req) {
         return auth.login(req);
@@ -51,10 +51,18 @@ public class AuthController {
                 Boolean.TRUE.equals(req.linkSites()));
     }
 
-    @Operation(summary = "로그아웃(서버의 로그인 기록 삭제)")
+    @Operation(summary = "접근 토큰 다시 받기: { refreshToken } → 로그인과 같은 응답")
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@RequestBody AuthDtos.RefreshRequest req) {
+        return auth.refresh(req.refreshToken());
+    }
+
+    @Operation(summary = "로그아웃: Authorization 헤더의 접근 토큰 + body { refreshToken } 모두 무효")
     @PostMapping("/logout")
-    public Map<String, Boolean> logout(HttpServletRequest request) {
-        auth.logout(TokenAuthFilter.bearer(request));
+    public Map<String, Boolean> logout(
+            HttpServletRequest request,
+            @RequestBody(required = false) AuthDtos.RefreshRequest req) {
+        auth.logout(TokenAuthFilter.bearer(request), req == null ? null : req.refreshToken());
         return Map.of("ok", true);
     }
 }

@@ -41,7 +41,8 @@ export const serverConfigStore = {
 
 export interface SavedSession {
   userId: string;
-  token: string | null;
+  token: string | null; // 접근 토큰
+  refreshToken?: string | null; // 리프레시 토큰(접근 토큰이 만료되면 새로 받을 때)
   user?: User; // 서버에 연결되지 않을 때 이 정보로 시작
 }
 

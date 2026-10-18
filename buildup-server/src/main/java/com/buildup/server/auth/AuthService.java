@@ -30,6 +30,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final CompanyRepository companies;
     private final AttemptLimiter limiter;
+    private final RefreshTokens refreshTokens;
 
     private static final Duration WINDOW = Duration.ofMinutes(10);
     private final com.buildup.server.site.SiteRepository siteRepository;
@@ -81,7 +82,10 @@ public class AuthService {
                     : user.getManagerCompany() != null ? user.getManagerCompany().getName() : null);
         }
         if (role == Role.HQ) {
+            // 새 본사를 등록한 사람 = 본사 관리자(보고 검토·자재 승인 가능), 본사 코드로 합류한 사람 = 본사 일반 직원
+            boolean joining = req.companyCode() != null && !req.companyCode().isBlank();
             user.setHqCompany(hqCompany(req));
+            user.setHqManager(!joining);
         }
         user.setPasswordHash(passwordEncoder.encode(req.password()));
         users.save(user);
@@ -156,14 +160,28 @@ public class AuthService {
                 .orElseThrow(() -> ApiException.unauthorized("로그인이 필요합니다."));
     }
 
+    /** 로그아웃: 접근 토큰과 리프레시 토큰을 모두 바로 무효로 */
     @Transactional
-    public void logout(String token) {
-        jwt.revoke(token);
+    public void logout(String accessToken, String refreshToken) {
+        jwt.revoke(accessToken);
+        refreshTokens.revoke(refreshToken);
     }
 
-    /** 로그인·가입 성공 → JWT 발급 */
+    /** 리프레시 토큰으로 새 접근 토큰 받기(리프레시 토큰은 그대로) */
+    @Transactional
+    public AuthResponse refresh(String refreshToken) {
+        RefreshToken rt = refreshTokens.find(refreshToken);
+        JwtTokens.Issued access = jwt.issue(rt.getUser());
+        return new AuthResponse(UserDto.of(rt.getUser()), access.value(), refreshToken, "Bearer",
+                access.expiresAt().toString(), rt.getExpiresAt().toString());
+    }
+
+    /** 로그인·가입 성공 → 접근 토큰 + 리프레시 토큰 발급 */
     private AuthResponse issue(User user) {
-        return new AuthResponse(UserDto.of(user), jwt.issue(user));
+        JwtTokens.Issued access = jwt.issue(user);
+        RefreshTokens.Issued refresh = refreshTokens.issue(user);
+        return new AuthResponse(UserDto.of(user), access.value(), refresh.value(), "Bearer",
+                access.expiresAt().toString(), refresh.expiresAt().toString());
     }
 
     private static String normalize(String email) {

@@ -146,9 +146,9 @@ public class MaterialService {
         MaterialRequest m = find(userId, requestId);
         User viewer = user(userId);
         Site site = m.getSite();
-        boolean hq = site.isHqOf(viewer);
+        boolean hq = site.isHqManagerOf(viewer);
         if (!site.isOwner(userId) && !hq) {
-            throw ApiException.forbidden("현장 총관리자나 본사 관계자만 자재 요청을 처리할 수 있습니다.");
+            throw ApiException.forbidden("현장 총관리자나 본사 관리자만 자재 요청을 처리할 수 있습니다.");
         }
         String next = status == null ? "" : status;
         if (!MaterialRequest.APPROVED.equals(next) && !MaterialRequest.REJECTED.equals(next)) {

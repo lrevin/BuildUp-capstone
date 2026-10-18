@@ -75,6 +75,40 @@ class ApiFlowTests {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void 로그인_응답과_리프레시_토큰() throws Exception {
+        Res login = send("POST", "/api/auth/login", null, Map.of("email", "hq@buildup.kr", "password", "1234"));
+        Map<String, Object> body = login.body();
+        assertThat(body).containsKeys("user", "accessToken", "refreshToken", "tokenType",
+                "accessTokenExpiresAt", "refreshTokenExpiresAt");
+        assertThat(body.get("tokenType")).isEqualTo("Bearer");
+        Map<String, Object> user = (Map<String, Object>) body.get("user");
+        // 본사 계정 구분: role = hq, 본사를 등록한 사람은 hqRole = manager, 검토 권한 있음
+        assertThat(user.get("role")).isEqualTo("hq");
+        assertThat(user.get("hqRole")).isEqualTo("manager");
+        assertThat(user.get("canReviewReports")).isEqualTo(true);
+        String refresh = body.get("refreshToken").toString();
+
+        // 리프레시 토큰으로 새 접근 토큰
+        Res again = send("POST", "/api/auth/refresh", null, Map.of("refreshToken", refresh));
+        assertThat(again.status()).isEqualTo(200);
+        String access = again.body().get("accessToken").toString();
+        assertThat(send("GET", "/api/auth/me", access, null).body().get("role")).isEqualTo("hq");
+        assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", "wrong")).status()).isEqualTo(401);
+
+        // 로그아웃하면 접근 토큰·리프레시 토큰 모두 무효
+        assertThat(send("POST", "/api/auth/logout", access, Map.of("refreshToken", refresh)).status()).isEqualTo(200);
+        assertThat(send("GET", "/api/auth/me", access, null).status()).isEqualTo(401);
+        assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", refresh)).status()).isEqualTo(401);
+
+        // 작업자는 hqRole 없음
+        Map<String, Object> w = send("GET", "/api/auth/me", worker, null).body();
+        assertThat(w.get("role")).isEqualTo("worker");
+        assertThat(w.get("hqRole")).isNull();
+        assertThat(w.get("canReviewReports")).isEqualTo(false);
+    }
+
+    @Test
     void 시스템_관리자_통계와_계정_사용_중지() throws Exception {
         String sys = token("sys@buildup.kr");
         Res stats = send("GET", "/api/system/stats", sys, null);
@@ -89,7 +123,7 @@ class ApiFlowTests {
         Res su = send("POST", "/api/auth/signup", null, Map.of("name", "중지시험", "email", "stop-test@buildup.kr",
                 "phone", "010-3333-4444", "password", "password123", "role", "worker"));
         assertThat(su.status()).as(String.valueOf(su.body())).isEqualTo(200);
-        String t = su.body().get("token").toString();
+        String t = su.body().get("accessToken").toString();
         @SuppressWarnings("unchecked")
         String id = ((Map<String, Object>) su.body().get("user")).get("id").toString();
         assertThat(send("PATCH", "/api/system/users/" + id, sys, Map.of("disabled", true)).status()).isEqualTo(200);
@@ -330,7 +364,7 @@ class ApiFlowTests {
     private String token(String email) throws Exception {
         Res r = send("POST", "/api/auth/login", null, Map.of("email", email, "password", "1234"));
         assertThat(r.status()).as(email + " 로그인").isEqualTo(200);
-        return r.body().get("token").toString();
+        return r.body().get("accessToken").toString();
     }
 
     private String firstSiteId(String token) throws Exception {

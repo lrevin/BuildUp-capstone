@@ -15,6 +15,18 @@ export interface User {
   company?: string; // 현장 관리자: 회사·사무소명 / 본사 관계자: 본사명
   companyCode?: string | null; // 본사 관계자만: 6자리 본사 코드
   hqName?: string | null; // 현장 관리자만: 보고하는 본사(null이면 최고 책임자)
+  hqRole?: 'manager' | 'member' | null; // 본사 관계자만: 본사 관리자 / 본사 일반 직원
+  canReviewReports?: boolean; // 본사에서 보고 검토·자재 승인 가능(본사 관리자)
+}
+
+// 로그인·가입·토큰 갱신 응답(서버 AuthDtos.AuthResponse)
+export interface AuthResponse {
+  user: User;
+  accessToken: string; // API 호출에 쓰는 토큰(기본 60분)
+  refreshToken: string; // 접근 토큰을 다시 받는 토큰(기본 30일)
+  tokenType: 'Bearer';
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
 }
 
 export interface SignUpInput {

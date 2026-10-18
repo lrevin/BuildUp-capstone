@@ -11,11 +11,18 @@ export interface User {
   company?: string | null;
   companyCode?: string | null;
   hqName?: string | null;
+  hqRole?: 'manager' | 'member' | null; // 본사 관계자만: 본사 관리자 / 본사 일반 직원
+  canReviewReports?: boolean; // 보고 검토·자재 승인 가능(본사 관리자)
 }
 
+// 로그인·토큰 갱신 응답(서버 AuthDtos.AuthResponse)
 export interface AuthResponse {
   user: User;
-  token: string;
+  accessToken: string; // API 호출용(기본 60분)
+  refreshToken: string; // 접근 토큰 다시 받기용(기본 30일)
+  tokenType: 'Bearer';
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
 }
 
 // 예전 데이터의 공정 키(새 보고는 'work'). 화면에는 보고의 work(진행한 작업)를 보여 준다.

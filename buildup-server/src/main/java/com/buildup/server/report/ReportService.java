@@ -48,7 +48,7 @@ public class ReportService {
     }
 
     /**
-     * 검토(승인·보완 요청)할 수 있는 사람: 연결된 본사 관계자 또는 현장 총관리자. 본인이 쓴 보고는 못 한다.
+     * 검토(승인·보완 요청)할 수 있는 사람: 연결된 본사의 관리자 또는 현장 총관리자. 본인이 쓴 보고는 못 한다.
      * (총관리자 본인 보고 → 본사 연결 현장이면 본사가 검토, 본사 없는 현장이면 제출할 때 바로 승인)
      */
     private static boolean canReview(Report r, User viewer) {
@@ -56,7 +56,7 @@ public class ReportService {
             return false;
         }
         Site site = r.getSite();
-        return site.isOwner(viewer.getId()) || site.isHqOf(viewer);
+        return site.isOwner(viewer.getId()) || site.isHqManagerOf(viewer);
     }
 
     private User viewer(Long userId) {

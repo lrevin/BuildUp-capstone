@@ -34,7 +34,7 @@ public final class MaterialDtos {
         static Permissions of(MaterialRequest m, User viewer) {
             Site site = m.getSite();
             boolean owner = site.isOwner(viewer.getId());
-            boolean hq = site.isHqOf(viewer);
+            boolean hq = site.isHqManagerOf(viewer);
             boolean linked = site.getCompany() != null;
             boolean author = m.getAuthor().getId().equals(viewer.getId());
             boolean requested = MaterialRequest.REQUESTED.equals(m.getStatus());

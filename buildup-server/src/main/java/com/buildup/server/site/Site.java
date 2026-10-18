@@ -128,7 +128,12 @@ public class Site {
         return owner.getId().equals(userId);
     }
 
-    /** 이 현장이 연결된 본사의 관계자인가 */
+    /** 이 현장이 연결된 본사의 관리자인가(보고 검토·자재 승인 권한) */
+    public boolean isHqManagerOf(User user) {
+        return isHqOf(user) && user.isHqManager();
+    }
+
+    /** 이 현장이 연결된 본사의 관계자인가(보기 권한) */
     public boolean isHqOf(User user) {
         return user != null
                 && user.getHqCompany() != null
