@@ -72,7 +72,18 @@ const MAX_FILES = 5;
 const MAX_FILE_MB = 20;
 // 첨부할 수 있는 문서(서버 FileStorage.DOC_ALLOWED와 같음)
 const DOC_EXT = [
-  'pdf', 'xls', 'xlsx', 'csv', 'hwp', 'hwpx', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'zip',
+  'pdf',
+  'xls',
+  'xlsx',
+  'csv',
+  'hwp',
+  'hwpx',
+  'doc',
+  'docx',
+  'ppt',
+  'pptx',
+  'txt',
+  'zip',
 ];
 
 // 1.2MB, 340KB
@@ -86,6 +97,23 @@ const ICON = { size: 20, color: colors.text, strokeWidth: 2 };
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
 
+// 공정 하나의 진행률을 바꿨을 때 현장 전체 진행률(가중치 반영)
+function weightedAfter(
+  processes: { key: string; weight: number; progress: number }[],
+  key: string,
+  value: number,
+) {
+  const total = processes.reduce((acc, p) => acc + p.weight, 0);
+  if (total <= 0) {
+    return 0;
+  }
+  const sum = processes.reduce(
+    (acc, p) => acc + (p.key === key ? value : p.progress) * p.weight,
+    0,
+  );
+  return Math.round((sum / total) * 10) / 10;
+}
+
 export default function ReportScreen({
   navigation,
   route,
@@ -98,6 +126,11 @@ export default function ReportScreen({
   const [loadError, setLoadError] = useState(false);
   const [works, setWorks] = useState<string[]>([]); // 진행한 작업(태그)
   const [workText, setWorkText] = useState(''); // 아직 태그가 안 된 입력 중인 작업
+  // 자동 계산 현장: 이번에 보고할 공정(value는 그 공정의 진행률)
+  const [procKey, setProcKey] = useState<string | null>(null);
+  const procKeyRef = useRef<string | null>(null);
+  procKeyRef.current = procKey;
+  const lastProcBase = useRef(0); // 직전에 받은 고른 공정의 진행률
   const [files, setFiles] = useState<PickedFile[]>([]);
   // 입력 중인 현장 전체 진행률(보고하는 사람이 판단). null = 아직 불러오기 전
   const [value, setValue] = useState<number | null>(null);
@@ -129,10 +162,21 @@ export default function ReportScreen({
         .catch(() => {});
       if (!hydrated.current) {
         // 처음 들어올 때: 기준값 + 작성 중이던 임시저장 내용
-        let base = s.overallProgress;
+        // (자동 계산 현장은 고른 공정의 진행률이 기준값)
         const draft = await draftStore.load(user.id, siteId);
-        if (draft) {
+        const auto = s.progressMode === 'auto';
+        const draftProc = auto
+          ? s.processes?.find(x => x.key === draft?.processKey)
+          : undefined;
+        let base = auto ? draftProc?.progress ?? 0 : s.overallProgress;
+        if (auto) {
+          setProcKey(draftProc?.key ?? null);
+          lastProcBase.current = draftProc?.progress ?? 0;
+        }
+        if (draft && (!auto || draftProc)) {
           base = Math.min(100, Math.max(base, draft.value ?? base));
+        }
+        if (draft) {
           setWorks(splitWorks(draft.work));
           setWorkText(draft.workText ?? '');
           setMemo(draft.memo);
@@ -145,11 +189,32 @@ export default function ReportScreen({
       } else {
         // 다른 사람이 보고했거나 보고가 지워졌으면 입력값을 최신 진행률에 맞춘다
         // (사용자가 직전 기준값보다 올려 둔 값만 유지, 보고 삭제로 내려간 차이는 버림)
-        setValue(prev =>
-          prev !== null && prev > prevBase && prev > s.overallProgress
-            ? Math.min(100, prev)
-            : s.overallProgress,
-        );
+        const auto = s.progressMode === 'auto';
+        const p = auto
+          ? s.processes?.find(x => x.key === procKeyRef.current)
+          : undefined;
+        if (auto) {
+          // 자동 계산: 고른 공정의 최신 진행률보다 올려 둔 값만 유지
+          const prevProc = lastProcBase.current;
+          // 사용자가 직전 기준값보다 올려 둔 값만 유지(보고 삭제로 내려간 차이는 버림)
+          setValue(prev =>
+            p
+              ? prev !== null && prev > prevProc && prev > p.progress
+                ? Math.min(100, prev)
+                : p.progress
+              : 0,
+          );
+          lastProcBase.current = p?.progress ?? 0;
+          if (!p) {
+            setProcKey(null);
+          }
+        } else {
+          setValue(prev =>
+            prev !== null && prev > prevBase && prev > s.overallProgress
+              ? Math.min(100, prev)
+              : s.overallProgress,
+          );
+        }
       }
     } catch {
       setLoadError(true);
@@ -162,7 +227,11 @@ export default function ReportScreen({
       return;
     }
     const t = setTimeout(() => {
-      const changed = value !== site.overallProgress;
+      const selected = site.processes?.find(x => x.key === procKey);
+      const changed =
+        site.progressMode === 'auto'
+          ? !!selected && value !== selected.progress
+          : value !== site.overallProgress;
       if (
         !changed &&
         works.length === 0 &&
@@ -177,6 +246,7 @@ export default function ReportScreen({
       draftStore.save(user.id, siteId, {
         work: joinWorks(works),
         workText,
+        processKey: procKey,
         value,
         memo,
         photoUris: photos.map(p => p.uri!),
@@ -185,7 +255,18 @@ export default function ReportScreen({
       });
     }, 500);
     return () => clearTimeout(t);
-  }, [site, value, works, workText, memo, photos, files, user.id, siteId]);
+  }, [
+    site,
+    value,
+    procKey,
+    works,
+    workText,
+    memo,
+    photos,
+    files,
+    user.id,
+    siteId,
+  ]);
 
   const discardDraft = async () => {
     const ok = await dialog.confirm({
@@ -199,7 +280,8 @@ export default function ReportScreen({
       return;
     }
     if (site) {
-      setValue(site.overallProgress);
+      setValue(site.progressMode === 'auto' ? 0 : site.overallProgress);
+      setProcKey(null);
     }
     setWorks([]);
     setWorkText('');
@@ -230,7 +312,9 @@ export default function ReportScreen({
     const rejected: string[] = [];
     for (const f of picked) {
       const name = f.name ?? '파일';
-      const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+      const ext = name.includes('.')
+        ? name.split('.').pop()!.toLowerCase()
+        : '';
       if (!DOC_EXT.includes(ext)) {
         rejected.push(`${name} (지원하지 않는 형식)`);
       } else if ((f.size ?? 0) > MAX_FILE_MB * 1024 * 1024) {
@@ -258,12 +342,18 @@ export default function ReportScreen({
       dialog.notice({
         icon: 'warning',
         title: '첨부하지 못한 파일이 있어요',
-        message: [
-          ...rejected,
-          ...(ok.length > chosen.length
-            ? [`최대 ${MAX_FILES}개까지라 ${ok.length - chosen.length}개는 빠졌어요`]
-            : []),
-        ].join('\n') + '\n\n엑셀·PDF·한글·워드·파워포인트 파일을 20MB까지 올릴 수 있어요.',
+        message:
+          [
+            ...rejected,
+            ...(ok.length > chosen.length
+              ? [
+                  `최대 ${MAX_FILES}개까지라 ${
+                    ok.length - chosen.length
+                  }개는 빠졌어요`,
+                ]
+              : []),
+          ].join('\n') +
+          '\n\n엑셀·PDF·한글·워드·파워포인트 파일을 20MB까지 올릴 수 있어요.',
       });
     }
   };
@@ -375,16 +465,37 @@ export default function ReportScreen({
     );
   }
 
-  const base = site.overallProgress; // 마지막 보고 값(현장 전체)
-  const baseLabel = !site.lastReportedAt
+  // 자동 계산 현장: 공정을 골라 그 공정의 진행률을 적는다(전체는 가중치로 계산)
+  const isAuto =
+    site.progressMode === 'auto' && (site.processes?.length ?? 0) > 0;
+  const proc = isAuto
+    ? site.processes!.find(x => x.key === procKey) ?? null
+    : null;
+  // 마지막 보고 값(직접 입력: 현장 전체, 자동 계산: 고른 공정)
+  const base = isAuto ? proc?.progress ?? 0 : site.overallProgress;
+  const lastAt = isAuto ? proc?.lastReportedAt ?? null : site.lastReportedAt;
+  const baseLabel = !lastAt
     ? '시작'
-    : isToday(site.lastReportedAt)
+    : isToday(lastAt)
     ? '직전 보고'
-    : `${new Date(site.lastReportedAt).getMonth() + 1}/${new Date(
-        site.lastReportedAt,
-      ).getDate()} 보고`;
+    : `${new Date(lastAt).getMonth() + 1}/${new Date(lastAt).getDate()} 보고`;
   const today = value;
   const added = round1(today - base);
+  // 이번 보고 후 현장 전체 진행률(자동 계산이면 미리 계산해서 보여 준다)
+  const overallAfter =
+    isAuto && proc
+      ? Math.max(
+          site.overallProgress,
+          weightedAfter(site.processes!, proc.key, today),
+        )
+      : today;
+  const pickProcess = (key: string) => {
+    const p = site.processes?.find(x => x.key === key);
+    setProcKey(key);
+    setValue(p?.progress ?? 0);
+    lastProcBase.current = p?.progress ?? 0;
+    setValueText(null);
+  };
 
   // 마지막 보고 값 아래로, 100% 위로는 못 가게 제한
   const clamp = (v: number) => round1(Math.min(100, Math.max(base, v)));
@@ -395,7 +506,12 @@ export default function ReportScreen({
       if (Number.isFinite(n)) {
         setValue(clamp(n));
         if (n < base) {
-          dialog.toast(`지금 진행률(${pct(base)})보다 낮게는 못 적어요`, 'error');
+          dialog.toast(
+            `${proc ? proc.name : '지금'} 진행률(${pct(
+              base,
+            )})보다 낮게는 못 적어요`,
+            'error',
+          );
         }
       }
       setValueText(null);
@@ -414,13 +530,21 @@ export default function ReportScreen({
     }
     setWorks(next);
     setWorkText('');
-    if (next.length === 0) {
+    if (isAuto && !proc) {
+      dialog.toast('보고할 공정을 골라 주세요', 'error');
+      return;
+    }
+    if (!isAuto && next.length === 0) {
       dialog.toast('진행한 작업을 적어 주세요', 'error');
       return;
     }
     setSheetOpen(true);
   };
   const work = joinWorks(works);
+  // 제출 확인 시트에 보이는 작업(자동 계산이면 공정 진행률 변화를 맨 앞에)
+  const sheetWork = proc
+    ? joinWorks([`${proc.name} ${pct(base)} → ${pct(today)}`, ...works])
+    : work;
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -435,6 +559,8 @@ export default function ReportScreen({
         siteId: site.id,
         work,
         to: today,
+        processKey: proc?.key,
+        processTo: proc ? today : undefined,
         photoUris: photos.map(p => p.uri!),
         photoTakenAt: photos.map(p => p.timestamp ?? null),
         location: place,
@@ -443,15 +569,33 @@ export default function ReportScreen({
         workLog: EMPTY_WORKLOG, // 날씨·인원·장비는 받지 않는다
       });
       // 제출 성공: 화면의 기준값을 바로 제출한 값으로(새로고침이 실패해도 중복 제출 안 되게)
-      const submittedWork = works.join(', ');
+      const submittedWork = proc
+        ? [`${proc.name} ${pct(base)} → ${pct(today)}`, ...works].join('\n')
+        : works.join(', ');
+      const overallFrom = isAuto ? site.overallProgress : base;
       const now = new Date().toISOString();
-      setSite({ ...site, overallProgress: today, lastReportedAt: now });
+      setSite({
+        ...site,
+        overallProgress: overallAfter,
+        lastReportedAt: now,
+        processes: site.processes?.map(x =>
+          x.key === proc?.key
+            ? { ...x, progress: today, lastReportedAt: now }
+            : x,
+        ),
+      });
       setValue(today);
-      lastBase.current = today;
+      lastBase.current = overallAfter;
+      lastProcBase.current = today;
       fetchSite(site.id)
         .then(updated => {
           setSite(updated);
-          setValue(updated.overallProgress);
+          const p = updated.processes?.find(x => x.key === procKeyRef.current);
+          setValue(
+            updated.progressMode === 'auto'
+              ? p?.progress ?? 0
+              : updated.overallProgress,
+          );
           lastBase.current = updated.overallProgress;
         })
         .catch(() => {});
@@ -467,9 +611,11 @@ export default function ReportScreen({
         icon: 'success',
         title: '보고를 제출했어요',
         message:
-          `${submittedWork}\n진행률 ${pct(base)} → ${pct(today)} (+${added.toFixed(
-            1,
-          )}%p)\n` +
+          `${submittedWork}\n${isAuto ? '현장 전체 ' : ''}진행률 ${pct(
+            overallFrom,
+          )} → ${pct(overallAfter)} (+${round1(
+            overallAfter - overallFrom,
+          ).toFixed(1)}%p)\n` +
           `사진 ${submittedPhotos}장` +
           (submittedFiles ? ` · 파일 ${submittedFiles}개` : '') +
           (submittedMemo ? ' · 메모 포함' : ''),
@@ -568,6 +714,9 @@ export default function ReportScreen({
                 <Text style={styles.todayCount}>
                   {reportedToday ? '오늘 보고 있음' : '오늘 아직 보고 없음'}
                 </Text>
+                {isAuto ? (
+                  <Text style={styles.autoBadge}>공정 가중치로 자동 계산</Text>
+                ) : null}
                 <Pressable
                   style={styles.ringLink}
                   onPress={goProgress}
@@ -580,10 +729,56 @@ export default function ReportScreen({
             </View>
           </Card>
 
+          {/* 자동 계산: 보고할 공정 고르기 */}
+          {isAuto ? (
+            <Card style={styles.gap}>
+              <Text style={styles.cardTitleInline}>보고할 공정</Text>
+              <Text style={styles.valueHint}>
+                오늘 작업한 공정을 골라 주세요. 괄호는 가중치예요.
+              </Text>
+              <View style={styles.procList}>
+                {site.processes!.map(p => {
+                  const on = p.key === procKey;
+                  return (
+                    <Pressable
+                      key={p.key}
+                      style={[styles.procRow, on && styles.procRowOn]}
+                      onPress={() => pickProcess(p.key)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                    >
+                      <View style={styles.flex}>
+                        <Text
+                          style={[styles.procName, on && styles.procNameOn]}
+                        >
+                          {p.name}{' '}
+                          <Text style={styles.procWeight}>({p.weight}%)</Text>
+                        </Text>
+                        <View style={styles.procTrack}>
+                          <View
+                            style={[
+                              styles.procFill,
+                              { width: `${p.progress}%` },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                      <Text style={[styles.procPct, on && styles.procNameOn]}>
+                        {pct(p.progress)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Card>
+          ) : null}
+
           {/* 진행한 작업 */}
           <Card style={styles.gap}>
             <View style={styles.fileTitleRow}>
-              <Text style={styles.cardTitleInline}>진행한 작업</Text>
+              <Text style={styles.cardTitleInline}>
+                진행한 작업{isAuto ? ' (선택)' : ''}
+              </Text>
               <Text style={styles.fileCount}>{works.length}개</Text>
             </View>
             <WorkTagInput
@@ -594,94 +789,120 @@ export default function ReportScreen({
               onFull={workFull}
             />
             <Text style={styles.hint}>
-              하나 입력하고 완료(↵)를 누르면 위에 한 줄씩 들어가요. ✕를 누르면 지워져요.
+              하나 입력하고 완료(↵)를 누르면 위에 한 줄씩 들어가요. ✕를 누르면
+              지워져요.
             </Text>
           </Card>
 
-          {/* 현장 전체 진행률 */}
+          {/* 진행률(직접 입력: 현장 전체 / 자동 계산: 고른 공정) */}
           <Card style={styles.gap}>
-            <Text style={styles.cardTitleInline}>현장 전체 진행률</Text>
+            <Text style={styles.cardTitleInline}>
+              {isAuto ? `${proc?.name ?? '공정'} 진행률` : '현장 전체 진행률'}
+            </Text>
             <Text style={styles.valueHint}>
-              공사 전체가 얼마나 진행됐는지 직접 판단해서 적어 주세요
+              {isAuto
+                ? '고른 공정이 얼마나 진행됐는지 적으면, 현장 전체 진행률은 가중치로 자동 계산돼요'
+                : '공사 전체가 얼마나 진행됐는지 직접 판단해서 적어 주세요'}
             </Text>
 
-            <View style={styles.progressTop}>
-              <View>
-                <View style={styles.valueRow}>
-                  <TextInput
-                    style={styles.progressValue}
-                    value={valueText ?? today.toFixed(1)}
-                    onFocus={() => setValueText(String(today))}
-                    onChangeText={t =>
-                      setValueText(t.replace(/[^0-9.,]/g, '').slice(0, 5))
-                    }
-                    onBlur={commitValueText}
-                    onSubmitEditing={commitValueText}
-                    keyboardType="decimal-pad"
-                    selectTextOnFocus
-                    accessibilityLabel="현장 전체 진행률 직접 입력"
-                  />
-                  <Text style={styles.progressUnit}>%</Text>
-                </View>
-                <Text style={styles.progressSub}>
-                  {baseLabel} {base.toFixed(1)}%
-                  {added > 0 ? (
-                    <Text style={styles.addedText}>
-                      {'  '}+{added.toFixed(1)}%p
+            {isAuto && !proc ? (
+              <Text style={styles.pickFirst}>
+                위에서 보고할 공정을 먼저 골라 주세요
+              </Text>
+            ) : (
+              <>
+                <View style={styles.progressTop}>
+                  <View>
+                    <View style={styles.valueRow}>
+                      <TextInput
+                        style={styles.progressValue}
+                        value={valueText ?? today.toFixed(1)}
+                        onFocus={() => setValueText(String(today))}
+                        onChangeText={t =>
+                          setValueText(t.replace(/[^0-9.,]/g, '').slice(0, 5))
+                        }
+                        onBlur={commitValueText}
+                        onSubmitEditing={commitValueText}
+                        keyboardType="decimal-pad"
+                        selectTextOnFocus
+                        accessibilityLabel="현장 전체 진행률 직접 입력"
+                      />
+                      <Text style={styles.progressUnit}>%</Text>
+                    </View>
+                    <Text style={styles.progressSub}>
+                      {baseLabel} {base.toFixed(1)}%
+                      {added > 0 ? (
+                        <Text style={styles.addedText}>
+                          {'  '}+{added.toFixed(1)}%p
+                        </Text>
+                      ) : null}
                     </Text>
-                  ) : null}
-                </Text>
-              </View>
-              <View style={styles.stepper}>
-                <Pressable
-                  accessibilityLabel="1%p 내리기"
-                  style={[styles.stepBtn, !canMinus && styles.disabled]}
-                  onPress={() => change(-STEP)}
-                  disabled={!canMinus}
-                >
-                  <Minus {...ICON} />
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="1%p 올리기"
-                  style={[styles.stepBtn, !canPlus && styles.disabled]}
-                  onPress={() => change(STEP)}
-                  disabled={!canPlus}
-                >
-                  <Plus {...ICON} />
-                </Pressable>
-              </View>
-            </View>
+                  </View>
+                  <View style={styles.stepper}>
+                    <Pressable
+                      accessibilityLabel="1%p 내리기"
+                      style={[styles.stepBtn, !canMinus && styles.disabled]}
+                      onPress={() => change(-STEP)}
+                      disabled={!canMinus}
+                    >
+                      <Minus {...ICON} />
+                    </Pressable>
+                    <Pressable
+                      accessibilityLabel="1%p 올리기"
+                      style={[styles.stepBtn, !canPlus && styles.disabled]}
+                      onPress={() => change(STEP)}
+                      disabled={!canPlus}
+                    >
+                      <Plus {...ICON} />
+                    </Pressable>
+                  </View>
+                </View>
 
-            <View style={styles.track}>
-              <View style={[styles.fillBase, { width: `${base}%` }]} />
-              <View style={[styles.fillToday, { width: `${added}%` }]} />
-            </View>
-            <View style={styles.legend}>
-              <View style={[styles.dot, styles.dotBase]} />
-              <Text style={styles.legendText}>누적</Text>
-              <View style={[styles.dot, styles.dotToday]} />
-              <Text style={styles.legendText}>오늘 작업분</Text>
-            </View>
-            {/* 빨리 올리기 */}
-            <View style={styles.quickRow}>
-              {[5, 10].map(n => (
-                <Pressable
-                  key={n}
-                  style={[styles.quickBtn, today >= 100 && styles.disabled]}
-                  onPress={() => change(n)}
-                  disabled={today >= 100}
-                >
-                  <Text style={styles.quickText}>+{n}%p</Text>
-                </Pressable>
-              ))}
-              <Pressable
-                style={[styles.quickBtn, added <= 0 && styles.disabled]}
-                onPress={() => setValue(base)}
-                disabled={added <= 0}
-              >
-                <Text style={styles.quickText}>처음 값으로</Text>
-              </Pressable>
-            </View>
+                <View style={styles.track}>
+                  <View style={[styles.fillBase, { width: `${base}%` }]} />
+                  <View style={[styles.fillToday, { width: `${added}%` }]} />
+                </View>
+                <View style={styles.legend}>
+                  <View style={[styles.dot, styles.dotBase]} />
+                  <Text style={styles.legendText}>누적</Text>
+                  <View style={[styles.dot, styles.dotToday]} />
+                  <Text style={styles.legendText}>오늘 작업분</Text>
+                </View>
+                {/* 빨리 올리기 */}
+                <View style={styles.quickRow}>
+                  {[5, 10].map(n => (
+                    <Pressable
+                      key={n}
+                      style={[styles.quickBtn, today >= 100 && styles.disabled]}
+                      onPress={() => change(n)}
+                      disabled={today >= 100}
+                    >
+                      <Text style={styles.quickText}>+{n}%p</Text>
+                    </Pressable>
+                  ))}
+                  <Pressable
+                    style={[styles.quickBtn, added <= 0 && styles.disabled]}
+                    onPress={() => setValue(base)}
+                    disabled={added <= 0}
+                  >
+                    <Text style={styles.quickText}>처음 값으로</Text>
+                  </Pressable>
+                </View>
+                {isAuto && proc ? (
+                  <View style={styles.autoPreview}>
+                    <Text style={styles.autoPreviewLabel}>
+                      현장 전체 진행률 (자동 계산)
+                    </Text>
+                    <Text style={styles.autoPreviewValue}>
+                      {pct(site.overallProgress)} →{' '}
+                      <Text style={styles.autoPreviewTo}>
+                        {pct(overallAfter)}
+                      </Text>
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            )}
           </Card>
 
           {/* 현장 사진 */}
@@ -835,9 +1056,9 @@ export default function ReportScreen({
       <SubmitSheet
         visible={sheetOpen}
         siteName={site.name}
-        work={work}
-        from={base}
-        to={today}
+        work={sheetWork}
+        from={isAuto ? site.overallProgress : base}
+        to={overallAfter}
         photoCount={photos.length}
         fileCount={files.length}
         memo={memo}
@@ -971,7 +1192,12 @@ const styles = StyleSheet.create({
 
   // 전체 진행률(남색 카드)
   hero: { backgroundColor: colors.navy },
-  workTypeText: { fontSize: 14, fontWeight: '700', color: colors.white, marginTop: 4 },
+  workTypeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.white,
+    marginTop: 4,
+  },
   workInput: {
     minHeight: 72,
     borderRadius: radius.md,
@@ -983,9 +1209,19 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'transparent',
   },
-  valueHint: { fontSize: 13, color: colors.textSub, marginTop: 4, marginBottom: 6 },
+  valueHint: {
+    fontSize: 13,
+    color: colors.textSub,
+    marginTop: 4,
+    marginBottom: 6,
+  },
   valueRow: { flexDirection: 'row', alignItems: 'baseline' },
-  progressUnit: { fontSize: 22, fontWeight: '800', color: colors.text, marginLeft: 2 },
+  progressUnit: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.text,
+    marginLeft: 2,
+  },
   quickRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
   quickBtn: {
     paddingHorizontal: 14,
@@ -1006,8 +1242,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   planLinkText: { fontSize: 13, fontWeight: '600', color: colors.white },
-
-
 
   // 첨부 파일
   fileTitleRow: {
@@ -1148,6 +1382,56 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   memoFocused: { backgroundColor: colors.white, borderColor: colors.navy },
+
+  // 자동 계산(공정 가중치)
+  autoBadge: {
+    fontSize: 12,
+    color: colors.yellow,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  procList: { gap: 8, marginTop: 12 },
+  procRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  procRowOn: { borderColor: colors.navy, backgroundColor: colors.fill },
+  procName: { fontSize: 15, fontWeight: '600', color: colors.textSub },
+  procNameOn: { color: colors.text, fontWeight: '700' },
+  procWeight: { fontSize: 12, color: colors.textMuted, fontWeight: '400' },
+  procTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.track,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  procFill: { height: 4, backgroundColor: colors.navy },
+  procPct: { fontSize: 14, color: colors.textSub, fontWeight: '600' },
+  pickFirst: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: 24,
+  },
+  autoPreview: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  autoPreviewLabel: { fontSize: 13, color: colors.textSub },
+  autoPreviewValue: { fontSize: 15, color: colors.textSub, fontWeight: '600' },
+  autoPreviewTo: { color: colors.text, fontWeight: '800' },
 
   // 자재 요청
   materialRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  ScrollView,
-  StyleSheet,
-} from 'react-native';
+import { KeyboardAvoidingView, ScrollView, StyleSheet } from 'react-native';
 import { Text } from '../components/Text';
 import { createSite } from '../api/buildup';
 import { errorMessage } from '../api/client';
 import { useDialog } from '../components/Dialog';
 import { AppHeader, BottomBar, Button, Field } from '../components/ui';
 import WorkTypePicker from '../components/WorkTypePicker';
+import ProgressModeEditor, {
+  ProcessRow,
+  checkRows,
+  rowsFrom,
+  toInput,
+} from '../components/ProgressModeEditor';
+import { defaultProcessesFor } from '../data/workTypes';
 import { ScreenProps } from '../navigation';
 import { colors } from '../theme';
+import { ProgressMode } from '../types';
 
 export default function CreateSiteScreen({
   navigation,
@@ -19,6 +23,8 @@ export default function CreateSiteScreen({
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [workType, setWorkType] = useState('');
+  const [mode, setMode] = useState<ProgressMode>('manual');
+  const [rows, setRows] = useState<ProcessRow[]>([]);
   const [loading, setLoading] = useState(false);
   const dialog = useDialog();
 
@@ -31,9 +37,20 @@ export default function CreateSiteScreen({
       dialog.toast('현장명과 주소를 입력해 주세요', 'error');
       return;
     }
+    const problem = mode === 'auto' ? checkRows(rows) : null;
+    if (problem) {
+      dialog.toast(problem, 'error');
+      return;
+    }
     setLoading(true);
     try {
-      const site = await createSite({ name, address, workType });
+      const site = await createSite({
+        name,
+        address,
+        workType,
+        progressMode: mode,
+        processes: mode === 'auto' ? toInput(rows) : undefined,
+      });
       // 만들자마자 코드 발급 화면으로(뒤로 가면 현장 목록)
       navigation.replace('SiteCode', {
         siteId: site.id,
@@ -77,8 +94,21 @@ export default function CreateSiteScreen({
           placeholder="예) 강원 원주시 무실동 123-4"
         />
 
+        <ProgressModeEditor
+          mode={mode}
+          onModeChange={m => {
+            setMode(m);
+            // 자동 계산을 처음 고르면 공사 종류에 맞는 기본 공정을 채워 둔다
+            if (m === 'auto' && rows.length === 0) {
+              setRows(rowsFrom(defaultProcessesFor(workType)));
+            }
+          }}
+          rows={rows}
+          onRowsChange={setRows}
+          onTemplate={() => setRows(rowsFrom(defaultProcessesFor(workType)))}
+        />
         <Text style={styles.guide}>
-          보고할 때 진행한 작업과 현장 전체 진행률을 직접 입력해요.
+          계산 방식은 나중에 현장 설정에서 바꿀 수 있어요.
         </Text>
       </ScrollView>
       <BottomBar>

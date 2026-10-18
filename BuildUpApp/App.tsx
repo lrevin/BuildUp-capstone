@@ -32,6 +32,7 @@ import SignUpScreen from './src/screens/SignUpScreen';
 import ServerScreen from './src/screens/ServerScreen';
 import SiteCodeScreen from './src/screens/SiteCodeScreen';
 import SiteSettingsScreen from './src/screens/SiteSettingsScreen';
+import ProgressModeScreen from './src/screens/ProgressModeScreen';
 import SitesScreen from './src/screens/SitesScreen';
 import { colors } from './src/theme';
 
@@ -97,6 +98,7 @@ function RootNavigator() {
           <Stack.Screen name="CreateSite" component={CreateSiteScreen} />
           <Stack.Screen name="SiteCode" component={SiteCodeScreen} />
           <Stack.Screen name="SiteSettings" component={SiteSettingsScreen} />
+          <Stack.Screen name="ProgressMode" component={ProgressModeScreen} />
           <Stack.Screen name="JoinSite" component={JoinSiteScreen} />
           <Stack.Screen name="Report" component={ReportScreen} />
           <Stack.Screen name="History" component={HistoryScreen} />

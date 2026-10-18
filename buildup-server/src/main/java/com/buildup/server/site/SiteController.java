@@ -56,6 +56,13 @@ public class SiteController {
         return service.update(CurrentUser.id(), siteId, req);
     }
 
+    @Operation(summary = "총관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치 저장",
+            description = "{ mode: manual | auto, processes: [{ key?, name, weight }] } — auto면 가중치 합 100")
+    @PutMapping("/{siteId}/progress-mode")
+    public SiteDto setProgressMode(@PathVariable Long siteId, @RequestBody SiteDtos.ProgressModeRequest req) {
+        return service.setProgressMode(CurrentUser.id(), siteId, req.mode(), req.processes());
+    }
+
     @Operation(summary = "현장 삭제")
     @DeleteMapping("/{siteId}")
     public Map<String, Boolean> delete(@PathVariable Long siteId) {

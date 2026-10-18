@@ -191,3 +191,53 @@ export function isListedWorkType(name: string) {
   const q = norm(name);
   return WORK_TYPE_GROUPS.some(g => g.items.some(it => norm(it.name) === q));
 }
+
+// ---- 자동 계산(공정 가중치)용 기본 공정 ----
+// 현장을 만들 때 '기본 공정 넣기'를 누르면 공사 종류에 맞는 공정과 가중치(합 100%)를 채워 준다.
+// 현장마다 다르므로 넣은 뒤 이름·가중치를 고쳐 쓰면 된다.
+const DEFAULT_PROCESSES: Record<string, [string, number][]> = {
+  '인테리어·리모델링': [
+    ['철거', 10],
+    ['설비·전기', 20],
+    ['목공', 25],
+    ['도장·도배', 20],
+    ['바닥·타일', 15],
+    ['마감·청소', 10],
+  ],
+  설비: [
+    ['준비·철거', 15],
+    ['배관', 45],
+    ['기기 설치', 25],
+    ['시험·마감', 15],
+  ],
+  '전기·통신': [
+    ['준비', 10],
+    ['배관·배선', 45],
+    ['기구 설치', 30],
+    ['점검·시험', 15],
+  ],
+  '건축·토목': [
+    ['골조', 40],
+    ['전기', 20],
+    ['설비', 20],
+    ['마감', 20],
+  ],
+  '보수·기타': [
+    ['준비', 20],
+    ['본 공사', 60],
+    ['마무리', 20],
+  ],
+};
+
+/** 공사 종류에 맞는 기본 공정(목록에 없는 공사는 '보수·기타' 기준) */
+export function defaultProcessesFor(
+  workType: string | null | undefined,
+): { name: string; weight: number }[] {
+  const q = norm(workType ?? '');
+  const group =
+    WORK_TYPE_GROUPS.find(g => g.items.some(it => norm(it.name) === q))
+      ?.group ?? '보수·기타';
+  return (DEFAULT_PROCESSES[group] ?? DEFAULT_PROCESSES['보수·기타']).map(
+    ([name, weight]) => ({ name, weight }),
+  );
+}

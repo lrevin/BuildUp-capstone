@@ -90,7 +90,6 @@ export default function HistoryScreen({
         right={<ExcelExportButton siteId={siteId} />}
       />
 
-
       {sections === null ? (
         <ActivityIndicator
           style={styles.loading}
@@ -173,10 +172,17 @@ export function ReportCard({
       <Text style={styles.work} numberOfLines={2}>
         {report.work || report.processName}
       </Text>
+      {/* 자동 계산 현장: 보고한 공정의 진행률 변화 */}
+      {report.processTo != null ? (
+        <Text style={styles.progressText}>
+          {report.processName} {pct(report.processFrom ?? 0)} →{' '}
+          {pct(report.processTo)}
+        </Text>
+      ) : null}
 
       <View style={styles.progressRow}>
         <Text style={styles.progressText}>
-          진행률 {pct(report.from)} →{' '}
+          {report.processTo != null ? '전체 ' : ''}진행률 {pct(report.from)} →{' '}
           <Text style={styles.progressTo}>{pct(report.to)}</Text>
         </Text>
         <Text style={styles.diff}>+{diff.toFixed(1)}%p</Text>
@@ -203,9 +209,7 @@ export function ReportCard({
       {report.files?.length ? (
         <View style={styles.logRow}>
           <Paperclip size={14} color={colors.textSub} />
-          <Text style={styles.logText}>
-            첨부 파일 {report.files.length}개
-          </Text>
+          <Text style={styles.logText}>첨부 파일 {report.files.length}개</Text>
         </View>
       ) : null}
 
@@ -260,7 +264,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  chipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 20 },
+  chipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 20,
+  },
   work: {
     fontSize: 16,
     fontWeight: '700',

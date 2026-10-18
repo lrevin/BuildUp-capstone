@@ -57,7 +57,12 @@ public class Report {
         return work != null && !work.isBlank() ? work : processName;
     }
 
-    /** 보고 전 현장 전체 진행률 → 보고 후 진행률(보고하는 사람이 판단해 입력) */
+    /** 자동 계산 방식: 보고한 공정의 진행률(보고 전 → 후). 직접 입력 방식이면 null */
+    private Double processFrom;
+
+    private Double processTo;
+
+    /** 보고 전 현장 전체 진행률 → 보고 후 진행률(직접 입력이면 보고하는 사람이 입력, 자동이면 계산값) */
     @Column(name = "from_progress", nullable = false)
     private double fromProgress;
 

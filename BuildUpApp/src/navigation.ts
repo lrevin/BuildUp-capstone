@@ -24,6 +24,7 @@ export type AppStackParamList = {
     isNew?: boolean;
   };
   SiteSettings: { siteId: string };
+  ProgressMode: { siteId: string }; // 진행률 계산 방식(직접 입력 / 자동 계산)·공정 가중치
   JoinSite: undefined;
   Report: { siteId: string };
   History: { siteId: string; siteName: string };

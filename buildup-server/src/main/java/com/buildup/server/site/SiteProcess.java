@@ -16,7 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** 현장의 공정(골조·전기·설비·마감)과 현재 진행률, 공정 계획 */
+/** 현장의 공정(예: 철거·설비·목공·마감)과 가중치, 공정별 현재 진행률 (자동 계산 방식) */
 @Entity
 @Table(
         name = "site_processes",
@@ -34,14 +34,14 @@ public class SiteProcess {
     @JoinColumn(name = "site_id")
     private Site site;
 
-    /** 'frame' | 'electric' | 'plumbing' | 'finish' */
+    /** 공정 구분값(현장 안에서 겹치지 않음). 예전 데모: frame·electric·plumbing·finish, 새 공정: p1, p2 … */
     @Column(name = "process_key", nullable = false, length = 20)
     private String key;
 
     @Column(nullable = false, length = 30)
     private String name;
 
-    /** 전체 진행률 계산 비중(합계 1) */
+    /** 가중치(%). 계산할 때 합계로 나누므로 예전 데이터(합계 1)도 그대로 쓴다 */
     @Column(nullable = false)
     private double weight;
 

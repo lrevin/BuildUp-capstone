@@ -43,6 +43,25 @@ export interface WorkLog {
   equipment: string; // 투입 장비
 }
 
+// 진행률 계산 방식: 직접 입력(보고하는 사람이 판단) / 자동 계산(공정 가중치)
+export type ProgressMode = 'manual' | 'auto';
+
+// 공정(자동 계산 방식): weight = 가중치(%), progress = 공정별 진행률(%)
+export interface SiteProcess {
+  key: string;
+  name: string;
+  weight: number;
+  progress: number;
+  lastReportedAt: string | null;
+}
+
+// 공정 입력(key가 없으면 새 공정)
+export interface ProcessInput {
+  key?: string;
+  name: string;
+  weight: number;
+}
+
 export interface Site {
   id: string;
   name: string;
@@ -51,12 +70,14 @@ export interface Site {
   ownerName: string;
   code: string | null; // 6자리 참여 코드(총관리자에게만 보임)
   memberCount: number;
-  overallProgress: number; // 현장 전체 진행률(%): 보고하는 사람이 판단해 입력한 값
+  overallProgress: number; // 현장 전체 진행률(%): 직접 입력 값 또는 공정 가중치로 계산한 값
   workType: string | null; // 공사 종류(예: 실내건축 공사, 상·하수도 설비 공사)
   lastReportedAt: string | null; // 마지막 보고(ISO 날짜)
   hqName: string | null; // 연결된 본사(없으면 null)
   latitude?: number | null; // 현장 위치(보고 위치 확인 기준)
   longitude?: number | null;
+  progressMode?: ProgressMode; // 없으면 직접 입력
+  processes?: SiteProcess[]; // 자동 계산 방식의 공정
 }
 
 // 현장 목록에 보이는 요약 정보
@@ -73,6 +94,7 @@ export interface SiteSummary {
   hqName: string | null; // 연결된 본사(없으면 본사 없이 운영)
   pendingMaterials: number; // 승인·반려를 기다리는 자재 요청 수
   pendingReviews?: number; // 내가 검토할 수 있는 대기 보고 수
+  progressMode?: ProgressMode;
 }
 
 export interface UpdateSiteInput {
@@ -106,6 +128,8 @@ export interface CreateSiteInput {
   name: string;
   address: string;
   workType: string; // 목록에서 고르거나 직접 입력
+  progressMode?: ProgressMode;
+  processes?: ProcessInput[]; // 자동 계산이면 공정·가중치(합 100)
 }
 
 // 보고에 첨부한 문서(엑셀·PDF 등)
@@ -133,7 +157,10 @@ export interface Report {
   /** 진행한 작업(직접 입력) */
   work: string;
   from: number; // 보고 전 현장 전체 진행률
-  to: number; // 보고 후(보고하는 사람이 판단해 입력)
+  to: number; // 보고 후(직접 입력 값 또는 자동 계산 값)
+  /** 자동 계산 현장: 보고한 공정의 진행률(보고 전 → 후). 직접 입력이면 없음 */
+  processFrom?: number | null;
+  processTo?: number | null;
   photoUris: string[];
   files: ReportFile[];
   memo: string;
@@ -187,8 +214,10 @@ export interface ReportCheck {
 
 export interface NewReport {
   siteId: string;
-  work: string; // 진행한 작업
-  to: number; // 현장 전체 진행률(%)
+  work: string; // 진행한 작업(자동 계산 현장은 비워도 됨)
+  to: number; // 직접 입력: 현장 전체 진행률(%)
+  processKey?: string; // 자동 계산: 보고할 공정
+  processTo?: number; // 자동 계산: 그 공정의 진행률(%)
   photoUris: string[];
   /** 사진마다 촬영 시각(ISO). 모르면 null */
   photoTakenAt?: (string | null)[];

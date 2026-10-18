@@ -17,6 +17,8 @@ import {
   Member,
   NewMaterialRequest,
   NewReport,
+  ProcessInput,
+  ProgressMode,
   Report,
   ReportPage,
   SeenInput,
@@ -202,6 +204,22 @@ export async function updateSite(
   return (await api.patch<Site>(`/sites/${siteId}`, input)).data;
 }
 
+// 총관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치 저장
+export async function setProgressMode(
+  siteId: string,
+  mode: ProgressMode,
+  processes: ProcessInput[],
+): Promise<Site> {
+  if (config.useDummy) {
+    return dummyWrite(() =>
+      dummyDb.setProgressMode(requireUserId(), siteId, mode, processes),
+    );
+  }
+  return (
+    await api.put<Site>(`/sites/${siteId}/progress-mode`, { mode, processes })
+  ).data;
+}
+
 // 총관리자: 현장 삭제(보고 이력도 함께 삭제)
 export async function deleteSite(siteId: string) {
   if (config.useDummy) {
@@ -328,7 +346,12 @@ export async function submitReport(input: NewReport): Promise<Report> {
   // 서버 연동 시: 사진은 multipart/form-data로 함께 업로드
   const form = new FormData();
   form.append('work', input.work);
-  form.append('to', String(input.to));
+  if (input.processKey) {
+    form.append('processKey', input.processKey);
+    form.append('processTo', String(input.processTo ?? 0));
+  } else {
+    form.append('to', String(input.to));
+  }
   form.append('memo', input.memo);
   form.append('workLog', JSON.stringify(input.workLog));
   input.photoUris.forEach((uri, i) =>

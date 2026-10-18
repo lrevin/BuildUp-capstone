@@ -11,6 +11,8 @@ import com.buildup.server.report.Report;
 import com.buildup.server.report.ReportRepository;
 import com.buildup.server.report.FileStorage;
 import com.buildup.server.site.SiteDtos.MemberDto;
+import com.buildup.server.site.SiteDtos.ProcessDto;
+import com.buildup.server.site.SiteDtos.ProcessInput;
 import com.buildup.server.site.SiteDtos.SiteDto;
 import com.buildup.server.site.SiteDtos.SitePreviewDto;
 import com.buildup.server.site.SiteDtos.SiteRequest;
@@ -20,8 +22,11 @@ import com.buildup.server.user.User;
 import com.buildup.server.user.UserRepository;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -109,7 +114,26 @@ public class SiteService {
                 Times.iso(s.getLastReportedAt()),
                 s.getCompany() == null ? null : s.getCompany().getName(),
                 s.getLatitude(),
-                s.getLongitude());
+                s.getLongitude(),
+                mode(s),
+                processes(s));
+    }
+
+    private static String mode(Site s) {
+        return s.isAuto() ? Site.MODE_AUTO : Site.MODE_MANUAL;
+    }
+
+    /** 공정 목록(가중치는 합계 100%로 맞춰서) */
+    private static List<ProcessDto> processes(Site s) {
+        double total = s.getProcesses().stream().mapToDouble(SiteProcess::getWeight).sum();
+        return s.getProcesses().stream()
+                .map(p -> new ProcessDto(
+                        p.getKey(),
+                        p.getName(),
+                        total > 0 ? Math.round(p.getWeight() / total * 1000) / 10.0 : 0,
+                        p.getProgress(),
+                        Times.iso(p.getLastReportedAt())))
+                .toList();
     }
 
     private SiteSummaryDto toSummary(Site s, Long userId) {
@@ -130,7 +154,8 @@ public class SiteService {
                 Times.iso(s.getLastReportedAt()),
                 s.getCompany() == null ? null : s.getCompany().getName(),
                 (int) materials.countBySiteIdAndStatus(s.getId(), MaterialRequest.REQUESTED),
-                pendingReviews(s, userId, forHq));
+                pendingReviews(s, userId, forHq),
+                mode(s));
     }
 
     /** 내가 검토(승인·보완 요청)할 수 있는 대기 보고 수: 본사는 전부, 현장 총관리자는 남이 쓴 보고 */
@@ -188,8 +213,95 @@ public class SiteService {
         // 보고하는 본사가 있으면 새 현장도 그 본사에 연결(없으면 최고 책임자 현장)
         site.setCompany(owner.getManagerCompany());
         site.getMembers().add(new SiteMember(site, owner, Instant.now()));
+        if (Site.MODE_AUTO.equals(req.progressMode())) {
+            applyMode(site, Site.MODE_AUTO, req.processes());
+        }
         sites.save(site);
         return toDto(site, userId);
+    }
+
+    /** 총관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치 바꾸기 */
+    @Transactional
+    public SiteDto setProgressMode(Long userId, Long siteId, String mode, List<ProcessInput> processes) {
+        Site site = ownedSite(userId, siteId, "진행률 계산 방식을 바꾸");
+        applyMode(site, mode, processes);
+        return toDto(site, userId);
+    }
+
+    private static final int MAX_PROCESSES = 12;
+
+    private void applyMode(Site site, String mode, List<ProcessInput> input) {
+        if (Site.MODE_MANUAL.equals(mode)) {
+            // 자동 → 직접: 지금 계산된 진행률에서 이어서 직접 입력. 공정은 남겨 둔다(다시 자동으로 바꿀 때 씀)
+            site.setProgress(site.overallProgress());
+            site.setProgressMode(Site.MODE_MANUAL);
+            return;
+        }
+        if (!Site.MODE_AUTO.equals(mode)) {
+            throw ApiException.badRequest("진행률 계산 방식은 manual 또는 auto예요.");
+        }
+        List<ProcessInput> list = input == null ? List.of() : input;
+        if (list.isEmpty()) {
+            throw ApiException.badRequest("자동 계산을 쓰려면 공정을 하나 이상 넣어 주세요.");
+        }
+        if (list.size() > MAX_PROCESSES) {
+            throw ApiException.badRequest("공정은 " + MAX_PROCESSES + "개까지 넣을 수 있어요.");
+        }
+        Set<String> names = new HashSet<>();
+        double sum = 0;
+        for (ProcessInput p : list) {
+            String name = p.name() == null ? "" : p.name().trim();
+            if (name.isEmpty() || name.length() > 30) {
+                throw ApiException.badRequest("공정 이름은 1~30자로 적어 주세요.");
+            }
+            if (!names.add(name)) {
+                throw ApiException.badRequest("공정 이름 '" + name + "'이(가) 겹쳐요.");
+            }
+            if (p.weight() == null || !Double.isFinite(p.weight()) || p.weight() <= 0) {
+                throw ApiException.badRequest("'" + name + "' 공정의 가중치를 0보다 크게 적어 주세요.");
+            }
+            sum += p.weight();
+        }
+        if (Math.abs(sum - 100) > 0.5) {
+            throw ApiException.badRequest("가중치 합계가 100%가 되어야 해요. (지금 " + Math.round(sum * 10) / 10.0 + "%)");
+        }
+
+        boolean wasAuto = site.isAuto();
+        double current = site.overallProgress();
+        List<SiteProcess> kept = new ArrayList<>();
+        int next = site.getProcesses().stream()
+                .map(SiteProcess::getKey)
+                .filter(k -> k.matches("p\\d+"))
+                .mapToInt(k -> Integer.parseInt(k.substring(1)))
+                .max().orElse(0) + 1;
+        for (int i = 0; i < list.size(); i++) {
+            ProcessInput in = list.get(i);
+            SiteProcess p = in.key() == null ? null : site.getProcesses().stream()
+                    .filter(x -> x.getKey().equals(in.key()))
+                    .findFirst().orElse(null);
+            if (p == null) {
+                // 새 공정: 이미 자동 계산 중이면 0%에서, 직접 입력에서 바꾸는 중이면 지금 진행률에서 시작
+                p = new SiteProcess(site, "p" + next++, in.name().trim(), in.weight(), i);
+                p.setProgress(wasAuto ? 0 : current);
+            } else {
+                p.setName(in.name().trim());
+                p.setWeight(in.weight());
+                p.setSortOrder(i);
+                if (!wasAuto) {
+                    p.setProgress(current); // 직접 입력 → 자동: 지금 진행률에서 이어서
+                }
+            }
+            kept.add(p);
+        }
+        site.getProcesses().removeIf(p -> !kept.contains(p));
+        for (SiteProcess p : kept) {
+            if (!site.getProcesses().contains(p)) {
+                site.getProcesses().add(p);
+            }
+        }
+        site.getProcesses().sort(Comparator.comparingInt(SiteProcess::getSortOrder));
+        site.setProgressMode(Site.MODE_AUTO);
+        site.setProgress(site.weightedProgress());
     }
 
     @Transactional

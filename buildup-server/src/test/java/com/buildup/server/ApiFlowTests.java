@@ -271,6 +271,60 @@ class ApiFlowTests {
         assertThat(send("GET", "/api/sites/" + demo.get("id"), admin, null).body().get("code")).isEqualTo("000000");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void 진행률_자동계산과_직접입력을_골라_쓴다() throws Exception {
+        // 자동 계산 현장 만들기: 철거 20 + 목공 50 + 마감 30
+        Res made = send("POST", "/api/sites", admin, Map.of(
+                "name", "자동 계산 시험 현장", "address", "원주", "workType", "아파트 리모델링",
+                "progressMode", "auto",
+                "processes", List.of(
+                        Map.of("name", "철거", "weight", 20),
+                        Map.of("name", "목공", "weight", 50),
+                        Map.of("name", "마감", "weight", 30))));
+        assertThat(made.status()).as(String.valueOf(made.body())).isEqualTo(200);
+        String id = made.body().get("id").toString();
+        List<Map<String, Object>> procs = (List<Map<String, Object>>) made.body().get("processes");
+        assertThat(made.body().get("progressMode")).isEqualTo("auto");
+        assertThat(procs).hasSize(3);
+
+        // 가중치 합이 100이 아니면 거절
+        assertThat(send("PUT", "/api/sites/" + id + "/progress-mode", admin, Map.of(
+                "mode", "auto", "processes", List.of(Map.of("name", "철거", "weight", 30)))).status()).isEqualTo(400);
+
+        // 철거 100% 보고 → 전체 20%, 목공 50% 보고 → 전체 45%
+        String demolish = procs.get(0).get("key").toString();
+        String wood = procs.get(1).get("key").toString();
+        assertThat(sendForm(admin, id, Map.of("processKey", demolish, "processTo", "100")).status()).isEqualTo(200);
+        Res second = sendForm(admin, id, Map.of("processKey", wood, "processTo", "50", "work", "거실 몰딩"));
+        assertThat(second.status()).isEqualTo(200);
+        assertThat(second.body().get("from")).isEqualTo(20.0);
+        assertThat(second.body().get("to")).isEqualTo(45.0);
+        assertThat(second.body().get("processTo")).isEqualTo(50.0);
+        assertThat(send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).isEqualTo(45.0);
+        // 공정 진행률은 낮출 수 없다
+        assertThat(sendForm(admin, id, Map.of("processKey", wood, "processTo", "40")).status()).isEqualTo(400);
+
+        // 가장 최근 보고를 지우면 목공도 0%로, 전체도 20%로 돌아간다
+        assertThat(send("DELETE", "/api/reports/" + second.body().get("id"), admin, null).status()).isEqualTo(200);
+        assertThat(send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).isEqualTo(20.0);
+
+        // 직접 입력으로 바꾸면 20%에서 이어서 직접 적는다
+        Res manual = send("PUT", "/api/sites/" + id + "/progress-mode", admin, Map.of("mode", "manual"));
+        assertThat(manual.body().get("progressMode")).isEqualTo("manual");
+        assertThat(manual.body().get("overallProgress")).isEqualTo(20.0);
+        assertThat(sendForm(admin, id, Map.of("work", "도배", "to", "35")).status()).isEqualTo(200);
+
+        // 다시 자동으로 바꾸면 모든 공정이 35%에서 시작
+        Res auto = send("PUT", "/api/sites/" + id + "/progress-mode", admin, Map.of("mode", "auto",
+                "processes", List.of(Map.of("key", demolish, "name", "철거", "weight", 40),
+                        Map.of("name", "도장", "weight", 60))));
+        assertThat(auto.status()).isEqualTo(200);
+        assertThat(auto.body().get("overallProgress")).isEqualTo(35.0);
+        assertThat((List<?>) auto.body().get("processes")).hasSize(2);
+        assertThat(send("DELETE", "/api/sites/" + id, admin, null).status()).isEqualTo(200);
+    }
+
     // ---------- 도움 함수 ----------
 
     private String token(String email) throws Exception {
@@ -314,7 +368,13 @@ class ApiFlowTests {
         String boundary = UUID.randomUUID().toString();
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         field(body, boundary, "work", "자동 테스트 작업");
-        field(body, boundary, "to", site.get("overallProgress").toString());
+        if ("auto".equals(site.get("progressMode"))) {
+            Map<?, ?> first = (Map<?, ?>) ((List<?>) site.get("processes")).get(0);
+            field(body, boundary, "processKey", first.get("key").toString());
+            field(body, boundary, "processTo", first.get("progress").toString());
+        } else {
+            field(body, boundary, "to", site.get("overallProgress").toString());
+        }
         field(body, boundary, "memo", "자동 테스트");
         if (lat != null) {
             field(body, boundary, "latitude", lat);

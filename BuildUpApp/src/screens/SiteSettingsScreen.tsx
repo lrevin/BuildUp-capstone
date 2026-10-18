@@ -1,5 +1,6 @@
 // 총관리자: 현장 정보 수정·현장 위치·본사 연결·현장 삭제
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -9,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Text } from '../components/Text';
-import { Building2, MapPin, Trash2 } from 'lucide-react-native';
+import { Building2, Calculator, MapPin, Trash2 } from 'lucide-react-native';
 import { currentPlace } from '../location';
 import {
   deleteSite,
@@ -45,9 +46,28 @@ export default function SiteSettingsScreen({
   const [hqName, setHqName] = useState<string | null>(null);
   const [hqCode, setHqCode] = useState('');
   const [linking, setLinking] = useState(false);
-  const [place, setPlace] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [place, setPlace] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [locating, setLocating] = useState(false);
+  const [modeText, setModeText] = useState<string | null>(null);
   const dialog = useDialog();
+
+  // 진행률 계산 방식(바꾸고 돌아오면 다시 불러온다)
+  useFocusEffect(
+    useCallback(() => {
+      fetchSite(siteId)
+        .then(s =>
+          setModeText(
+            s.progressMode === 'auto'
+              ? `자동 계산 (공정 가중치) · 공정 ${s.processes?.length ?? 0}개`
+              : '직접 입력 (보고하는 사람이 판단)',
+          ),
+        )
+        .catch(() => {});
+    }, [siteId]),
+  );
 
   useEffect(() => {
     fetchSite(siteId)
@@ -86,7 +106,11 @@ export default function SiteSettingsScreen({
     }
     setSaving(true);
     try {
-      await updateSite(siteId, { name, address, workType: workType || undefined });
+      await updateSite(siteId, {
+        name,
+        address,
+        workType: workType || undefined,
+      });
       dialog.toast('현장 정보를 저장했어요', 'success');
       navigation.goBack();
     } catch (e) {
@@ -256,6 +280,21 @@ export default function SiteSettingsScreen({
               onChangeText={setAddress}
             />
 
+            {/* 진행률 계산 방식 */}
+            <View style={[styles.hq, styles.placeBox]}>
+              <View style={styles.hqTitleRow}>
+                <Calculator size={18} color={colors.text} />
+                <Text style={styles.hqTitle}>진행률 계산 방식</Text>
+              </View>
+              <Text style={styles.hqDesc}>{modeText ?? '불러오는 중…'}</Text>
+              <Button
+                title="계산 방식·공정 가중치 바꾸기"
+                variant="outline"
+                onPress={() => navigation.navigate('ProgressMode', { siteId })}
+                style={styles.hqBtn}
+              />
+            </View>
+
             {/* 현장 위치 */}
             <View style={[styles.hq, styles.placeBox]}>
               <View style={styles.hqTitleRow}>
@@ -264,12 +303,20 @@ export default function SiteSettingsScreen({
               </View>
               <Text style={styles.hqDesc}>
                 {place
-                  ? `저장됨 (${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}). 여기서 1km 넘게 떨어져 제출한 보고에는 확인 표시가 붙어요.`
+                  ? `저장됨 (${place.latitude.toFixed(
+                      5,
+                    )}, ${place.longitude.toFixed(
+                      5,
+                    )}). 여기서 1km 넘게 떨어져 제출한 보고에는 확인 표시가 붙어요.`
                   : '현장에 서서 저장하면, 현장이 아닌 곳에서 제출하거나 찍은 사진을 알려 줘요.'}
               </Text>
               <View style={styles.hqRow}>
                 <Button
-                  title={place ? '지금 위치로 다시 저장' : '지금 위치를 현장 위치로 저장'}
+                  title={
+                    place
+                      ? '지금 위치로 다시 저장'
+                      : '지금 위치를 현장 위치로 저장'
+                  }
                   variant="outline"
                   onPress={onSavePlace}
                   loading={locating}

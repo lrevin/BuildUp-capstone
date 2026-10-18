@@ -32,6 +32,10 @@ public class Site {
     /** 개발·시연용 데모 인테리어 현장의 고정 참여 코드(재발급 불가, 새 현장에는 발급 안 함) */
     public static final String DEMO_CODE = "000000";
 
+    /** 진행률 계산 방식: 직접 입력(보고하는 사람이 판단) / 자동 계산(공정 가중치) */
+    public static final String MODE_MANUAL = "manual";
+    public static final String MODE_AUTO = "auto";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -65,8 +69,12 @@ public class Site {
     @Column(length = 50)
     private String workType;
 
-    /** 현장 전체 진행률(%): 보고하는 사람이 직접 판단해 입력한 값. null이면 예전 방식(공정 비중) 데이터 */
+    /** 현장 전체 진행률(%): 직접 입력 방식은 보고하는 사람이 입력한 값, 자동 계산 방식은 마지막 계산값. null이면 예전 데이터 */
     private Double progress;
+
+    /** 진행률 계산 방식: manual(직접 입력, 기본) | auto(공정 가중치로 자동 계산). null = manual */
+    @Column(length = 10)
+    private String progressMode;
 
     /** 마지막 보고 시각 */
     private Instant lastReportedAt;
@@ -76,7 +84,7 @@ public class Site {
     @JoinColumn(name = "company_id")
     private Company company;
 
-    /** 예전 방식(공정별 진행률) 데이터. 새 방식으로 바꾼 뒤에는 쓰지 않는다(SiteProgressMigration) */
+    /** 공정과 가중치·공정별 진행률. 자동 계산 방식에서 쓴다(직접 입력으로 바꿔도 지우지 않고 남겨 둔다) */
     @OneToMany(mappedBy = "site", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sortOrder ASC")
     private List<SiteProcess> processes = new ArrayList<>();
@@ -85,13 +93,25 @@ public class Site {
     @OrderBy("joinedAt ASC")
     private List<SiteMember> members = new ArrayList<>();
 
-    /** 현장 전체 진행률(%). 보고할 때 입력한 값 그대로 */
-    public double overallProgress() {
-        return progress != null ? progress : legacyProgress();
+    public boolean isAuto() {
+        return MODE_AUTO.equals(progressMode);
     }
 
-    /** 예전 방식: 공정 비중을 반영한 진행률(바꾸기 전 데이터에서만 쓴다) */
+    /** 현장 전체 진행률(%). 자동 계산 방식은 공정 가중치로 계산, 직접 입력 방식은 보고할 때 입력한 값 */
+    public double overallProgress() {
+        if (isAuto()) {
+            return weightedProgress();
+        }
+        return progress != null ? progress : weightedProgress();
+    }
+
+    /** 예전 데이터 변환용(SiteProgressMigration) */
     public double legacyProgress() {
+        return weightedProgress();
+    }
+
+    /** 공정 가중치를 반영한 진행률 = Σ(공정 진행률 × 가중치) ÷ Σ가중치 */
+    public double weightedProgress() {
         double total = processes.stream().mapToDouble(SiteProcess::getWeight).sum();
         if (total <= 0) {
             return 0;

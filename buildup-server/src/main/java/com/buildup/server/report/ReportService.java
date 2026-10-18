@@ -6,6 +6,7 @@ import com.buildup.server.report.ReportDtos.ReportDto;
 import com.buildup.server.report.ReportDtos.ReportPageDto;
 import com.buildup.server.report.ReportDtos.WorkLogDto;
 import com.buildup.server.site.Site;
+import com.buildup.server.site.SiteProcess;
 import com.buildup.server.site.SiteService;
 import com.buildup.server.user.User;
 import com.buildup.server.user.UserRepository;
@@ -207,7 +208,9 @@ public class ReportService {
             Long userId,
             Long siteId,
             String work,
-            double to,
+            Double to,
+            String processKey,
+            Double processTo,
             String memo,
             WorkLogDto workLog,
             List<MultipartFile> photos,
@@ -216,15 +219,31 @@ public class ReportService {
             List<String> photoTakenAt) {
         Site site = sites.memberSite(userId, siteId);
         String workText = work == null ? "" : work.trim();
-        if (workText.isEmpty()) {
-            throw ApiException.badRequest("진행한 작업을 입력해 주세요.");
-        }
         if (workText.length() > 100) {
             throw ApiException.badRequest("진행한 작업은 100자까지 쓸 수 있어요.");
         }
         double current = site.overallProgress();
-        if (!Double.isFinite(to) || to < current || to > 100) {
-            throw ApiException.badRequest("진행률은 지금 진행률(" + current + "%) 이상, 100% 이하여야 해요.");
+        SiteProcess process = null;
+        if (site.isAuto()) {
+            // 자동 계산: 공정 하나의 진행률을 올리면 현장 전체 진행률은 가중치로 계산
+            process = site.getProcesses().stream()
+                    .filter(p -> p.getKey().equals(processKey))
+                    .findFirst()
+                    .orElseThrow(() -> ApiException.badRequest("보고할 공정을 골라 주세요."));
+            if (processTo == null || !Double.isFinite(processTo) || processTo < process.getProgress() || processTo > 100) {
+                throw ApiException.badRequest("'" + process.getName() + "' 진행률은 지금 값(" + process.getProgress()
+                        + "%) 이상, 100% 이하여야 해요.");
+            }
+            if (workText.isEmpty()) {
+                workText = process.getName() + " 작업";
+            }
+        } else {
+            if (workText.isEmpty()) {
+                throw ApiException.badRequest("진행한 작업을 입력해 주세요.");
+            }
+            if (to == null || !Double.isFinite(to) || to < current || to > 100) {
+                throw ApiException.badRequest("진행률은 지금 진행률(" + current + "%) 이상, 100% 이하여야 해요.");
+            }
         }
         List<MultipartFile> uploads = photos == null
                 ? List.of()
@@ -250,11 +269,22 @@ public class ReportService {
         Instant now = Instant.now();
         Report r = new Report();
         r.setSite(site);
-        r.setProcessKey(WORK_KEY);
-        r.setProcessName(workText.length() > 30 ? workText.substring(0, 30) : workText);
         r.setWork(workText);
         r.setFromProgress(current);
-        r.setToProgress(Math.round(to * 10) / 10.0);
+        if (process != null) {
+            double pTo = Math.round(processTo * 10) / 10.0;
+            r.setProcessKey(process.getKey());
+            r.setProcessName(process.getName());
+            r.setProcessFrom(process.getProgress());
+            r.setProcessTo(pTo);
+            process.setProgress(pTo);
+            process.setLastReportedAt(now);
+            r.setToProgress(Math.max(current, site.weightedProgress()));
+        } else {
+            r.setProcessKey(WORK_KEY);
+            r.setProcessName(workText.length() > 30 ? workText.substring(0, 30) : workText);
+            r.setToProgress(Math.round(to * 10) / 10.0);
+        }
         r.setMemo(memo == null ? "" : memo.trim());
         r.setWeather(log.weather());
         r.setWorkers(log.workers() != null && log.workers() > 0 ? log.workers() : null);
@@ -345,11 +375,23 @@ public class ReportService {
         }
         Site site = r.getSite();
         double from = r.getFromProgress();
+        String key = r.getProcessKey();
+        Double processFrom = r.getProcessFrom();
         files.deleteAfterCommit(r.photoFiles(), r.getFiles());
         reports.delete(r);
         reports.flush();
 
-        // 진행률을 보고 전 값으로 되돌린다
+        // 진행률을 보고 전 값으로 되돌린다(자동 계산 현장은 보고한 공정의 진행률도)
+        if (processFrom != null) {
+            site.getProcesses().stream().filter(p -> p.getKey().equals(key)).findFirst().ifPresent(p -> {
+                p.setProgress(processFrom);
+                p.setLastReportedAt(reports.findBySiteIdOrderByCreatedAtDescIdDesc(site.getId()).stream()
+                        .filter(x -> key.equals(x.getProcessKey()))
+                        .map(Report::getCreatedAt)
+                        .findFirst()
+                        .orElse(null));
+            });
+        }
         site.setProgress(from);
         site.setLastReportedAt(reports.findFirstBySiteIdOrderByCreatedAtDescIdDesc(site.getId())
                 .map(Report::getCreatedAt)

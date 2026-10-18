@@ -56,13 +56,18 @@ public class ReportController {
         return service.unread(CurrentUser.id(), req.seen());
     }
 
-    /** 앱은 multipart/form-data로 보낸다: work(진행한 작업), to(현장 전체 진행률), memo, workLog(JSON 문자열), photos(여러 장), files(첨부 문서) */
-    @Operation(summary = "앱은 multipart/form-data로 보낸다: processKey, to, memo, workLog(JSON 문자열), photos(여러 장), files(첨부 문서)")
+    /**
+     * 앱은 multipart/form-data로 보낸다: work(진행한 작업), memo, workLog(JSON 문자열), photos(여러 장), files(첨부 문서)
+     * 직접 입력 현장: to(현장 전체 진행률) / 자동 계산 현장: processKey(보고할 공정) + processTo(그 공정의 진행률)
+     */
+    @Operation(summary = "보고 제출(multipart): work, memo, photos, files + 직접 입력이면 to, 자동 계산이면 processKey·processTo")
     @PostMapping(value = "/api/sites/{siteId}/reports", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ReportDto create(
             @PathVariable Long siteId,
-            @RequestParam String work,
-            @RequestParam double to,
+            @RequestParam(required = false) String work,
+            @RequestParam(required = false) Double to,
+            @RequestParam(required = false) String processKey,
+            @RequestParam(required = false) Double processTo,
             @RequestParam(required = false, defaultValue = "") String memo,
             @RequestParam(required = false) String workLog,
             @RequestParam(required = false) List<MultipartFile> photos,
@@ -72,7 +77,7 @@ public class ReportController {
             @RequestParam(required = false) Double accuracy,
             @RequestParam(required = false) List<String> photoTakenAt) {
         return service.create(
-                CurrentUser.id(), siteId, work, to, memo, parseWorkLog(workLog), photos, files,
+                CurrentUser.id(), siteId, work, to, processKey, processTo, memo, parseWorkLog(workLog), photos, files,
                 new ReportService.SubmitPlace(latitude, longitude, accuracy), photoTakenAt);
     }
 

@@ -120,6 +120,32 @@ export default function ProgressScreen({
             </View>
           </Card>
 
+          {/* 자동 계산 현장: 공정별 진행률과 가중치 */}
+          {site.progressMode === 'auto' && site.processes?.length ? (
+            <Card style={styles.gap}>
+              <Text style={styles.cardTitle}>공정별 진행률</Text>
+              <Text style={styles.procHint}>
+                전체 = Σ(공정 진행률 × 가중치) ÷ 100
+              </Text>
+              {site.processes.map(p => (
+                <View key={p.key} style={styles.procRow}>
+                  <View style={styles.procTop}>
+                    <Text style={styles.procName}>
+                      {p.name}{' '}
+                      <Text style={styles.procWeight}>가중치 {p.weight}%</Text>
+                    </Text>
+                    <Text style={styles.procPct}>{pct(p.progress)}</Text>
+                  </View>
+                  <View style={styles.procTrack}>
+                    <View
+                      style={[styles.procFill, { width: `${p.progress}%` }]}
+                    />
+                  </View>
+                </View>
+              ))}
+            </Card>
+          ) : null}
+
           {/* 진행률 추이 */}
           <Card style={styles.gap}>
             <View style={styles.titleRow}>
@@ -211,6 +237,25 @@ const styles = StyleSheet.create({
   loading: { marginTop: 48 },
   content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32 },
   gap: { marginTop: 12 },
+  procHint: {
+    fontSize: 12,
+    color: colors.textSub,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  procRow: { marginTop: 12 },
+  procTop: { flexDirection: 'row', justifyContent: 'space-between' },
+  procName: { fontSize: 15, fontWeight: '600', color: colors.text },
+  procWeight: { fontSize: 12, color: colors.textMuted, fontWeight: '400' },
+  procPct: { fontSize: 15, fontWeight: '700', color: colors.text },
+  procTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.track,
+    marginTop: 6,
+    overflow: 'hidden',
+  },
+  procFill: { height: 6, backgroundColor: colors.navy },
   hero: { backgroundColor: colors.navy },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   heroSide: { flex: 1, gap: 4 },

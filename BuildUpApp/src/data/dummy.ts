@@ -20,12 +20,15 @@ import {
   Member,
   NewMaterialRequest,
   NewReport,
+  ProcessInput,
+  ProgressMode,
   Report,
   ReportPage,
   Role,
   SeenInput,
   SignUpInput,
   Site,
+  SiteProcess,
   SitePreview,
   SiteSummary,
   UpdateSiteInput,
@@ -37,7 +40,7 @@ import { addDays, toYMD } from '../utils/plan';
 // 개발·시연용 데모 인테리어 현장의 고정 참여 코드(재발급 불가)
 export const DEMO_CODE = '000000';
 
-// 예전 방식(공정별 진행률) 데모 데이터를 만들 때만 쓰는 모양. 만든 뒤 현장 전체 진행률로 바꾼다(toSiteLevel)
+// 공정(자동 계산 방식). 가중치는 상대값(합으로 나눠 계산)
 interface Process {
   key: string;
   name: string;
@@ -76,8 +79,9 @@ interface SiteRow {
   longitude?: number | null;
   memberIds: string[];
   joinedAt: Record<string, string>; // 사용자 id → 참여 시각
-  processes: Process[]; // 예전 방식 데이터(데모를 만들 때만)
-  progress?: number; // 현장 전체 진행률(보고하는 사람이 입력)
+  processes: Process[]; // 자동 계산 방식의 공정(직접 입력으로 바꿔도 남겨 둔다)
+  progress?: number; // 현장 전체 진행률(직접 입력 값, 자동이면 마지막 계산값)
+  progressMode?: ProgressMode; // 없으면 직접 입력
   workType?: string | null; // 공사 종류
   lastReportedAt?: string | null;
 }
@@ -88,11 +92,7 @@ type ReportRow = Omit<
 >;
 type MaterialRow = Omit<
   MaterialRequest,
-  | 'siteName'
-  | 'hqLinked'
-  | 'canCancel'
-  | 'canApprove'
-  | 'canReject'
+  'siteName' | 'hqLinked' | 'canCancel' | 'canApprove' | 'canReject'
 >;
 
 export interface DummyState {
@@ -389,9 +389,33 @@ function makeSeed(): DummyState {
 
   // 최고 책임자(박철근)의 작은 현장: 공정도 직접 만든 예시
   const wonju: Process[] = [
-    { key: 'demolish', name: '철거', weight: 20, progress: 100, lastReportedAt: hourAt(9, 16), planStart: ymdFromToday(-20), planEnd: ymdFromToday(-10) },
-    { key: 'piping', name: '설비 교체', weight: 30, progress: 55, lastReportedAt: hourAt(1, 16), planStart: ymdFromToday(-12), planEnd: ymdFromToday(8) },
-    { key: 'interior', name: '내장 마감', weight: 50, progress: 10, lastReportedAt: hourAt(0, 9), planStart: ymdFromToday(0), planEnd: ymdFromToday(25) },
+    {
+      key: 'demolish',
+      name: '철거',
+      weight: 20,
+      progress: 100,
+      lastReportedAt: hourAt(9, 16),
+      planStart: ymdFromToday(-20),
+      planEnd: ymdFromToday(-10),
+    },
+    {
+      key: 'piping',
+      name: '설비 교체',
+      weight: 30,
+      progress: 55,
+      lastReportedAt: hourAt(1, 16),
+      planStart: ymdFromToday(-12),
+      planEnd: ymdFromToday(8),
+    },
+    {
+      key: 'interior',
+      name: '내장 마감',
+      weight: 50,
+      progress: 10,
+      lastReportedAt: hourAt(0, 9),
+      planStart: ymdFromToday(0),
+      planEnd: ymdFromToday(25),
+    },
   ];
   sites.push({
     id: 'site-3',
@@ -405,9 +429,36 @@ function makeSeed(): DummyState {
     processes: wonju,
   });
   const wonjuSpecs: HistorySpec[] = [
-    { key: 'demolish', name: '철거', final: 100, lastDaysAgo: 9, every: 2, count: 5, authors: [KIM, PARK], memos: ['철거 완료, 폐기물 반출.'] },
-    { key: 'piping', name: '설비 교체', final: 55, lastDaysAgo: 1, every: 2, count: 5, authors: [KIM, PARK], memos: ['욕실 급배수 배관 교체.', '주방 배관 교체.'] },
-    { key: 'interior', name: '내장 마감', final: 10, lastDaysAgo: 0, every: 1, count: 1, authors: [PARK], memos: ['거실 벽지 제거 시작.'] },
+    {
+      key: 'demolish',
+      name: '철거',
+      final: 100,
+      lastDaysAgo: 9,
+      every: 2,
+      count: 5,
+      authors: [KIM, PARK],
+      memos: ['철거 완료, 폐기물 반출.'],
+    },
+    {
+      key: 'piping',
+      name: '설비 교체',
+      final: 55,
+      lastDaysAgo: 1,
+      every: 2,
+      count: 5,
+      authors: [KIM, PARK],
+      memos: ['욕실 급배수 배관 교체.', '주방 배관 교체.'],
+    },
+    {
+      key: 'interior',
+      name: '내장 마감',
+      final: 10,
+      lastDaysAgo: 0,
+      every: 1,
+      count: 1,
+      authors: [PARK],
+      memos: ['거실 벽지 제거 시작.'],
+    },
   ];
 
   // 개발·시연용 인테리어 현장: 참여 코드 000000 고정(재발급 불가), 진행률 0%에서 시작 (서버 DemoDataSeeder와 같음)
@@ -473,9 +524,15 @@ function toSiteLevel(siteRows: SiteRow[], reportRows: ReportRow[]) {
     site.progress = legacyOverall(site.processes);
     site.lastReportedAt = rows.length ? rows[rows.length - 1].createdAt : null;
     site.workType = DEMO_WORK_TYPES[site.code] ?? '기타 공사';
-    site.processes = [];
+    if (site.code === AUTO_DEMO_CODE) {
+      // 자동 계산(공정 가중치) 예시 현장: 공정을 남겨 두고 자동 계산 방식으로 (서버 DemoDataSeeder와 같음)
+      site.progressMode = 'auto';
+    } else {
+      site.processes = [];
+    }
   }
 }
+const AUTO_DEMO_CODE = '482915';
 
 // 자재 요청 예시: 승인 대기·승인·반려가 골고루 보이도록(서버 DemoDataSeeder와 같은 내용)
 function seedMaterials(): MaterialRow[] {
@@ -526,30 +583,95 @@ function seedMaterials(): MaterialRow[] {
   });
   return [
     // 승인 대기(작업자 요청 → 총관리자나 본사가 처리)
-    row('site-1', 'electric', CHOI, 1, true, '5층 입선 작업분이 모자라요.', null,
+    row(
+      'site-1',
+      'electric',
+      CHOI,
+      1,
+      true,
+      '5층 입선 작업분이 모자라요.',
+      null,
       [item('전선 HFIX 2.5sq', 10, '롤'), item('CD관 22mm', 30, '본')],
-      [['requested', CHOI, false, 0, 8]]),
-    row('site-1', 'frame', KIM, 2, false, '9층 슬래브 배근용', null,
+      [['requested', CHOI, false, 0, 8]],
+    ),
+    row(
+      'site-1',
+      'frame',
+      KIM,
+      2,
+      false,
+      '9층 슬래브 배근용',
+      null,
       [item('철근 HD13', 5, '톤'), item('결속선', 10, '롤')],
-      [['requested', KIM, false, 0, 7]]),
+      [['requested', KIM, false, 0, 7]],
+    ),
     // 승인 대기(총관리자 본인 요청 → 본사가 처리)
-    row('site-1', 'frame', LEE, 1, true, '10층 거푸집 전용. 오전 반입 부탁드립니다.', null,
+    row(
+      'site-1',
+      'frame',
+      LEE,
+      1,
+      true,
+      '10층 거푸집 전용. 오전 반입 부탁드립니다.',
+      null,
       [item('유로폼 600×1200', 200, '장'), item('각재 50×50', 150, '본')],
-      [['requested', LEE, false, 0, 9]]),
-    row('site-2', 'frame', LEE, 5, false, '증축동 2차 철골', null,
+      [['requested', LEE, false, 0, 9]],
+    ),
+    row(
+      'site-2',
+      'frame',
+      LEE,
+      5,
+      false,
+      '증축동 2차 철골',
+      null,
       [item('H형강 300×300', 12, '톤')],
-      [['requested', LEE, false, 1, 10]]),
+      [['requested', LEE, false, 1, 10]],
+    ),
     // 승인
-    row('site-1', 'plumbing', PARK, 3, false, '', null,
+    row(
+      'site-1',
+      'plumbing',
+      PARK,
+      3,
+      false,
+      '',
+      null,
       [item('PVC관 100mm', 20, '본')],
-      [['requested', PARK, false, 1, 15], ['approved', LEE, false, 1, 17]]),
-    row('site-1', 'finish', KIM, 2, false, '3층 내벽용', null,
+      [
+        ['requested', PARK, false, 1, 15],
+        ['approved', LEE, false, 1, 17],
+      ],
+    ),
+    row(
+      'site-1',
+      'finish',
+      KIM,
+      2,
+      false,
+      '3층 내벽용',
+      null,
       [item('석고보드 9.5T', 120, '장')],
-      [['requested', KIM, false, 3, 10], ['approved', JUNG, true, 2, 11]]),
+      [
+        ['requested', KIM, false, 3, 10],
+        ['approved', JUNG, true, 2, 11],
+      ],
+    ),
     // 반려
-    row('site-1', 'finish', PARK, null, false, '2층 내벽용', '이미 요청된 자재예요',
+    row(
+      'site-1',
+      'finish',
+      PARK,
+      null,
+      false,
+      '2층 내벽용',
+      '이미 요청된 자재예요',
       [item('석고보드 9.5T', 100, '장')],
-      [['requested', PARK, false, 3, 9], ['rejected', LEE, false, 3, 12]]),
+      [
+        ['requested', PARK, false, 3, 9],
+        ['rejected', LEE, false, 3, 12],
+      ],
+    ),
   ];
 }
 
@@ -587,7 +709,6 @@ function legacyOverall(processes: Process[]) {
     ) / 10
   );
 }
-
 
 // 비밀번호는 밖으로 내보내지 않는다
 function publicUser(row: UserRow): User {
@@ -704,6 +825,89 @@ function withPermissions(userId: string, row: ReportRow): Report {
   };
 }
 
+// 현장 전체 진행률: 자동 계산이면 공정 가중치로, 직접 입력이면 입력한 값
+const overallOf = (s: SiteRow) =>
+  s.progressMode === 'auto' ? legacyOverall(s.processes) : s.progress ?? 0;
+
+function processesOf(s: SiteRow): SiteProcess[] {
+  const total = s.processes.reduce((acc, p) => acc + p.weight, 0);
+  return s.processes.map(p => ({
+    key: p.key,
+    name: p.name,
+    weight: total > 0 ? Math.round((p.weight / total) * 1000) / 10 : 0,
+    progress: p.progress,
+    lastReportedAt: p.lastReportedAt,
+  }));
+}
+
+// 진행률 계산 방식 바꾸기(서버 SiteService.applyMode와 같은 규칙)
+function applyMode(s: SiteRow, mode: ProgressMode, input: ProcessInput[]) {
+  if (mode === 'manual') {
+    s.progress = overallOf(s);
+    s.progressMode = 'manual';
+    return;
+  }
+  if (input.length === 0) {
+    throw new ApiError('자동 계산을 쓰려면 공정을 하나 이상 넣어 주세요.');
+  }
+  if (input.length > 12) {
+    throw new ApiError('공정은 12개까지 넣을 수 있어요.');
+  }
+  const names = new Set<string>();
+  let sum = 0;
+  for (const p of input) {
+    const name = (p.name ?? '').trim();
+    if (!name || name.length > 30) {
+      throw new ApiError('공정 이름은 1~30자로 적어 주세요.');
+    }
+    if (names.has(name)) {
+      throw new ApiError(`공정 이름 '${name}'이(가) 겹쳐요.`);
+    }
+    names.add(name);
+    if (!Number.isFinite(p.weight) || p.weight <= 0) {
+      throw new ApiError(`'${name}' 공정의 가중치를 0보다 크게 적어 주세요.`);
+    }
+    sum += p.weight;
+  }
+  if (Math.abs(sum - 100) > 0.5) {
+    throw new ApiError(
+      `가중치 합계가 100%가 되어야 해요. (지금 ${Math.round(sum * 10) / 10}%)`,
+    );
+  }
+  const wasAuto = s.progressMode === 'auto';
+  const current = overallOf(s);
+  let next =
+    Math.max(
+      0,
+      ...s.processes
+        .map(p => /^p(\d+)$/.exec(p.key)?.[1])
+        .filter((n): n is string => !!n)
+        .map(Number),
+    ) + 1;
+  s.processes = input.map(p => {
+    const old = p.key ? s.processes.find(x => x.key === p.key) : undefined;
+    if (old) {
+      return {
+        ...old,
+        name: p.name.trim(),
+        weight: p.weight,
+        progress: wasAuto ? old.progress : current,
+      };
+    }
+    return {
+      key: `p${next++}`,
+      name: p.name.trim(),
+      weight: p.weight,
+      progress: wasAuto ? 0 : current, // 직접 입력에서 바꾸면 지금 진행률에서 시작
+      lastReportedAt: null,
+      planStart: null,
+      planEnd: null,
+    };
+  });
+  s.progressMode = 'auto';
+  s.progress = legacyOverall(s.processes);
+}
+
 function summary(s: SiteRow, userId: string): SiteSummary {
   return {
     id: s.id,
@@ -711,7 +915,8 @@ function summary(s: SiteRow, userId: string): SiteSummary {
     address: s.address,
     ownerName: ownerName(s),
     memberCount: s.memberIds.length,
-    overallProgress: s.progress ?? 0,
+    overallProgress: overallOf(s),
+    progressMode: s.progressMode ?? 'manual',
     isOwner: s.ownerId === userId,
     hqName: companies.find(c => c.id === s.companyId)?.name ?? null,
     workType: s.workType ?? null,
@@ -724,7 +929,10 @@ function summary(s: SiteRow, userId: string): SiteSummary {
       r =>
         r.siteId === s.id &&
         r.review?.status === 'pending' &&
-        (isHqOf(users.find(u => u.id === userId), s) ||
+        (isHqOf(
+          users.find(u => u.id === userId),
+          s,
+        ) ||
           (s.ownerId === userId && r.authorId !== userId)),
     ).length,
   };
@@ -881,7 +1089,9 @@ export const dummyDb = {
       ownerName: ownerName(s),
       code: isOwner ? s.code : null,
       memberCount: s.memberIds.length,
-      overallProgress: s.progress ?? 0,
+      overallProgress: overallOf(s),
+      progressMode: s.progressMode ?? 'manual',
+      processes: processesOf(s),
       workType: s.workType ?? null,
       lastReportedAt: s.lastReportedAt ?? null,
       hqName: companies.find(c => c.id === s.companyId)?.name ?? null,
@@ -927,8 +1137,23 @@ export const dummyDb = {
       workType: workType.slice(0, 50),
       lastReportedAt: null,
     };
+    if (input.progressMode === 'auto') {
+      applyMode(row, 'auto', input.processes ?? []);
+    }
     sites.push(row);
     return dummyDb.getSite(userId, row.id);
+  },
+
+  // 총관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치
+  setProgressMode(
+    userId: string,
+    siteId: string,
+    mode: ProgressMode,
+    processes: ProcessInput[],
+  ): Site {
+    const s = findOwnedSite(userId, siteId, '진행률 계산 방식을 바꾸');
+    applyMode(s, mode, processes);
+    return dummyDb.getSite(userId, siteId);
   },
 
   updateSite(userId: string, siteId: string, input: UpdateSiteInput): Site {
@@ -954,7 +1179,9 @@ export const dummyDb = {
   regenerateCode(userId: string, siteId: string): string {
     const s = findOwnedSite(userId, siteId, '코드를 재발급');
     if (s.code === DEMO_CODE) {
-      throw new ApiError('데모 현장 코드는 000000으로 고정이라 바꿀 수 없어요.');
+      throw new ApiError(
+        '데모 현장 코드는 000000으로 고정이라 바꿀 수 없어요.',
+      );
     }
     s.code = newCode(code => sites.some(x => x.code === code));
     return s.code;
@@ -1100,28 +1327,61 @@ export const dummyDb = {
   addReport(userId: string, input: NewReport): Report {
     const u = findUser(userId);
     const s = findMemberSite(userId, input.siteId);
-    const work = (input.work ?? '').trim();
-    if (!work) {
-      throw new ApiError('진행한 작업을 입력해 주세요.');
-    }
+    let work = (input.work ?? '').trim();
     if (work.length > 100) {
       throw new ApiError('진행한 작업은 100자까지 쓸 수 있어요.');
     }
-    const current = s.progress ?? 0;
-    if (!Number.isFinite(input.to) || input.to < current || input.to > 100) {
-      throw new ApiError(
-        `진행률은 지금 진행률(${current}%) 이상, 100% 이하여야 해요.`,
-      );
-    }
+    const current = overallOf(s);
     const now = new Date().toISOString();
+    let to: number;
+    let processKey = 'work';
+    let processName = work.slice(0, 30);
+    let processFrom: number | null = null;
+    let processTo: number | null = null;
+    if (s.progressMode === 'auto') {
+      // 자동 계산: 공정 하나의 진행률을 올리면 현장 전체 진행률은 가중치로 계산
+      const p = s.processes.find(x => x.key === input.processKey);
+      if (!p) {
+        throw new ApiError('보고할 공정을 골라 주세요.');
+      }
+      const pTo = input.processTo ?? NaN;
+      if (!Number.isFinite(pTo) || pTo < p.progress || pTo > 100) {
+        throw new ApiError(
+          `'${p.name}' 진행률은 지금 값(${p.progress}%) 이상, 100% 이하여야 해요.`,
+        );
+      }
+      if (!work) {
+        work = `${p.name} 작업`;
+      }
+      processKey = p.key;
+      processName = p.name;
+      processFrom = p.progress;
+      processTo = Math.round(pTo * 10) / 10;
+      p.progress = processTo;
+      p.lastReportedAt = now;
+      to = Math.max(current, legacyOverall(s.processes));
+    } else {
+      if (!work) {
+        throw new ApiError('진행한 작업을 입력해 주세요.');
+      }
+      if (!Number.isFinite(input.to) || input.to < current || input.to > 100) {
+        throw new ApiError(
+          `진행률은 지금 진행률(${current}%) 이상, 100% 이하여야 해요.`,
+        );
+      }
+      processName = work.slice(0, 30);
+      to = Math.round(input.to * 10) / 10;
+    }
     const row: ReportRow = {
       id: `r-${Date.now()}`,
       siteId: s.id,
-      processKey: 'work',
-      processName: work.slice(0, 30),
+      processKey,
+      processName,
       work,
       from: current,
-      to: Math.round(input.to * 10) / 10,
+      to,
+      processFrom,
+      processTo,
       photoUris: input.photoUris,
       // 데모 모드: 서버가 없으니 폰 안의 파일 주소를 그대로 둔다
       files: input.files.map(f => ({
@@ -1223,6 +1483,19 @@ export const dummyDb = {
       );
     }
     reports = reports.filter(r => r.id !== reportId);
+    // 자동 계산 현장은 보고한 공정의 진행률도 되돌린다
+    const p =
+      row.processFrom != null
+        ? s.processes.find(x => x.key === row.processKey)
+        : undefined;
+    if (p) {
+      p.progress = row.processFrom!;
+      p.lastReportedAt =
+        reports
+          .filter(r => r.siteId === s.id && r.processKey === p.key)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+          ?.createdAt ?? null;
+    }
     s.progress = row.from;
     s.lastReportedAt = latestOf(row.siteId)?.createdAt ?? null;
   },
@@ -1377,9 +1650,7 @@ export const dummyDb = {
 
   getHqSites(userId: string): SiteSummary[] {
     const c = findHqCompany(userId);
-    return sites
-      .filter(s => s.companyId === c.id)
-      .map(s => summary(s, userId));
+    return sites.filter(s => s.companyId === c.id).map(s => summary(s, userId));
   },
 
   getHqReports(userId: string): Report[] {

@@ -81,6 +81,10 @@ public class DemoDataSeeder implements CommandLineRunner {
             user("시스템 관리자", "sys@buildup.kr", "010-0000-0000", Role.SYSTEM, "Build Up 운영팀");
         }
         seedDemoInterior();
+        // 자동 계산(공정 가중치) 예시: 한빛 현장은 처음 한 번 자동 계산 방식으로(이후 사용자가 바꾸면 그대로 둔다)
+        sites.findByCode("482915")
+                .filter(s -> s.getProgressMode() == null)
+                .ifPresent(s -> s.setProgressMode(Site.MODE_AUTO));
     }
 
     /**

@@ -19,10 +19,15 @@
   작업자는 코드로 참여, 관리자는 새 현장 만들기(작업자 계정이면 현장 관리자로 전환한 뒤 바로 이어짐)
 - **공사 종류**: 현장을 만들 때 고른다. 검색창으로 50여 가지(인테리어·설비·전기·통신·건축·토목·보수)에서 찾고,
   없으면 '그대로 쓰기'나 '직접 입력'. 목록은 `src/data/workTypes.ts`(건설산업기본법 업종 + 흔한 소규모 공사 이름)
-- **보고 작성**: 진행한 작업 직접 입력(필수, 100자), 현장 전체 진행률(보고하는 사람이 판단 — 숫자 직접 입력 또는
+- **진행률 계산 방식**: 현장을 만들 때(또는 현장 설정 → 진행률 계산 방식) 고른다.
+  - 직접 입력: 보고하는 사람이 현장 전체 진행률을 판단해 적는다.
+  - 자동 계산(공정 가중치): 총관리자가 공정과 가중치(합 100%)를 정한다. 공사 종류에 맞는 기본 공정 넣기,
+    똑같이 나누기 지원(`src/data/workTypes.ts`의 `defaultProcessesFor`). 보고할 때 공정을 고르고 그 공정의 진행률을
+    적으면 전체 = Σ(공정 진행률 × 가중치) ÷ 100 으로 자동 계산. 방식을 바꿔도 진행률은 지금 값에서 이어진다.
+- **보고 작성**: 진행한 작업(한 줄씩 여러 개, 모두 합쳐 100자, 자동 계산 현장은 선택), 진행률(숫자 직접 입력 또는
   ±1·+5·+10%p, 지금 값보다 낮게는 불가), 사진 최대 10장(촬영·갤러리),
   첨부 파일 최대 5개(엑셀·PDF·한글·워드·파워포인트, 한 개당 20MB, 원래 이름으로 내려받기),
-  작업 정보(날씨·투입 인원·장비), 작업 메모, 제출 전 확인 시트, 작성 중 자동 임시저장
+  작업 메모, 제출 전 확인 시트, 작성 중 자동 임시저장
 - **현황**: 현장 전체 진행률(원형 그래프), 공사 종류, 오늘 보고 여부
 - **진척 현황**: 현장 전체 진행률 추이 그래프(1개월·3개월·전체), 최근 7일 증가, 최근 진행률 변화 목록
 - **이력**: 날짜별 보고 이력(진행한 작업·진행률), 보고 상세, 사진 크게 보기, 메모 수정(작성자), 최근 보고 삭제(진행률 되돌림)
@@ -146,7 +151,7 @@ gradlew.bat bootRun
 | POST | /sites/join | `{ code }`로 참여 |
 | GET | /sites/:id/members | 참여자 목록 |
 | DELETE | /sites/:id/members/:userId · /members/me | 내보내기 · 나가기 |
-| GET · POST | /sites/:id/reports | 보고 목록 · 제출(multipart: `work` 진행한 작업, `to` 현장 전체 진행률, 사진 `photos`, 첨부 문서 `files`, 작업정보 `workLog` JSON) |
+| GET · POST | /sites/:id/reports | 보고 목록 · 제출(multipart: `work` 진행한 작업, 직접 입력 현장은 `to` 현장 전체 진행률 / 자동 계산 현장은 `processKey`·`processTo` 공정 진행률, 사진 `photos`, 첨부 문서 `files`) |
 | GET | /sites/:id/reports/page?cursor=&size=30 | 보고 이력 나눠 불러오기 `{ items, nextCursor, total }` (total은 첫 묶음에만, 최대 50건씩) |
 | POST | /reports/unread | 홈 화면 빨간 숫자: `{ seen: { 현장ID: 마지막으로 본 시각 또는 null } }` → `{ 현장ID: 확인 안 한 보고 수 }` |
 | PATCH · DELETE | /reports/:id | 메모 수정 · 삭제 |
@@ -154,6 +159,7 @@ gradlew.bat bootRun
 | PATCH | /materials/:id/status | 총관리자·본사: `{ status: approved·rejected, reason? }` |
 | DELETE | /materials/:id | 작성자: 처리 전 요청 취소 |
 | PUT · DELETE | /sites/:id/hq | 총관리자: `{ code }`로 본사 연결 · 연결 해제 |
+| PUT | /sites/:id/progress-mode | 총관리자: 진행률 계산 방식 `{ mode: manual \| auto, processes: [{ key?, name, weight }] }` (auto면 가중치 합 100) |
 | GET | /companies/code/:code | 본사 코드로 본사명 확인 |
 | GET | /hq · /hq/sites · /hq/reports · /hq/materials | 본사 관계자: 본사 정보 · 연결 현장 · 최근 보고 · 자재 요청 |
 | GET | /hq/reports/page?cursor=&size=30 | 본사 관계자: 연결된 모든 현장 보고 나눠 불러오기 |
