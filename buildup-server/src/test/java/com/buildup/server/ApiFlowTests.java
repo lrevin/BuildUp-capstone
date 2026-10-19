@@ -101,6 +101,12 @@ class ApiFlowTests {
         assertThat(send("GET", "/api/auth/me", access, null).status()).isEqualTo(401);
         assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", refresh)).status()).isEqualTo(401);
 
+        // 헤더 없이 refreshToken만 보내도 로그아웃(API 약속)
+        String r2 = send("POST", "/api/auth/login", null, Map.of("email", "hq@buildup.kr", "password", "1234"))
+                .body().get("refreshToken").toString();
+        assertThat(send("POST", "/api/auth/logout", null, Map.of("refreshToken", r2)).status()).isEqualTo(200);
+        assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", r2)).status()).isEqualTo(401);
+
         // 작업자는 hqRole 없음
         Map<String, Object> w = send("GET", "/api/auth/me", worker, null).body();
         assertThat(w.get("role")).isEqualTo("worker");
