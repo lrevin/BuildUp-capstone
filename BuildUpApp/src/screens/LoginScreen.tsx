@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   KeyboardAvoidingView,
   Pressable,
@@ -22,6 +23,13 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  // 서버 설정에서 연결을 바꾸고 돌아오면 아래 '데모 모드 / 서버 주소' 표시를 다시 그린다
+  const [, setConfigShown] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      setConfigShown(n => n + 1);
+    }, []),
+  );
   const dialog = useDialog();
 
   const onLogin = async () => {

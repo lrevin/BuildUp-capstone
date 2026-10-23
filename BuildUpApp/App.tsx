@@ -118,7 +118,12 @@ function RootNavigator() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
-          <Stack.Screen name="Server" component={ServerScreen} />
+          {/* 로그인 후 서버 설정에서 연결을 바꿔 로그아웃되면 이 화면에 남지 않고 로그인 화면으로 */}
+          <Stack.Screen
+            name="Server"
+            component={ServerScreen}
+            navigationKey="guest"
+          />
         </>
       )}
     </Stack.Navigator>
