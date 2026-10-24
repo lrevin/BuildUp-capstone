@@ -28,7 +28,7 @@ import lombok.Setter;
  * 현장 총관리자나 연결된 본사의 관계자가 승인·반려한다.
  */
 @Entity
-@Table(name = "material_requests", indexes = @Index(columnList = "site_id, createdAt"))
+@Table(name = "material_requests")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -50,10 +50,10 @@ public class MaterialRequest {
     private Site site;
 
     /** 관련 공정(없으면 현장 공통) */
-    @Column(name = "process_key", length = 20)
+    @Column(name = "process_key", length = 50)
     private String processKey;
 
-    @Column(length = 30)
+    @Column(name = "process_name", length = 100)
     private String processName;
 
     @ElementCollection(fetch = FetchType.EAGER)
@@ -64,23 +64,23 @@ public class MaterialRequest {
     /** 현장에 필요한 날짜(선택) */
     private LocalDate neededBy;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "tinyint(1)")
     private boolean urgent;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Column(columnDefinition = "text")
     private String note = "";
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     private String status = REQUESTED;
 
-    @Column(length = 100)
+    @Column(columnDefinition = "text")
     private String rejectReason;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "author_id")
     private User author;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "datetime(6)")
     private Instant createdAt = Instant.now();
 
     /** 처리 이력(오래된 순) */
@@ -90,6 +90,6 @@ public class MaterialRequest {
     private List<MaterialEvent> events = new ArrayList<>();
 
     public void addEvent(String status, User actor, boolean byHq, Instant at) {
-        events.add(new MaterialEvent(status, actor.getName(), byHq, at));
+        events.add(new MaterialEvent(status, actor.getName(), actor, byHq, at));
     }
 }

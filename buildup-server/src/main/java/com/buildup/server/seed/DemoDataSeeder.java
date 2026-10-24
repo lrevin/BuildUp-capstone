@@ -73,18 +73,12 @@ public class DemoDataSeeder implements CommandLineRunner {
         }
         if (users.count() == 0) {
             seedAll();
-        } else {
-            upgradeExisting();
         }
         if (users.findByEmail("sys@buildup.kr").isEmpty()) {
             log.info("시스템 관리자 데모 계정을 추가합니다.");
-            user("시스템 관리자", "sys@buildup.kr", "010-0000-0000", Role.SYSTEM, "Build Up 운영팀");
+            user("시스템 관리자", "sys@buildup.kr", "010-0000-0000", Role.SYSTEM);
         }
         seedDemoInterior();
-        // 자동 계산(공정 가중치) 예시: 한빛 현장은 처음 한 번 자동 계산 방식으로(이후 사용자가 바꾸면 그대로 둔다)
-        sites.findByCode("482915")
-                .filter(s -> s.getProgressMode() == null)
-                .ifPresent(s -> s.setProgressMode(Site.MODE_AUTO));
     }
 
     /**
@@ -106,59 +100,14 @@ public class DemoDataSeeder implements CommandLineRunner {
         s.setOwner(admin);
         s.setCode(Site.DEMO_CODE);
         s.setWorkType("아파트 리모델링");
-        s.setProgress(0.0);
-        s.setCompany(admin.getManagerCompany());
+        s.setProgressMode(Site.MODE_MANUAL);
+        s.setCompany(sites.findFirstByOwnerIdAndCompanyIsNotNullOrderByCreatedAtDescIdDesc(admin.getId())
+                .map(Site::getCompany)
+                .orElse(null));
         Instant now = Instant.now();
         s.getMembers().add(new SiteMember(s, admin, now));
         users.findByEmail("worker@buildup.kr").ifPresent(w -> s.getMembers().add(new SiteMember(s, w, now)));
         sites.save(s);
-    }
-
-    /**
-     * 본사 기능 이전에 만든 DB: 본사·본사 계정이 없으면 만들고 데모 현장 두 곳을 연결한다.
-     * 처리 이력이 없는 예전 자재 요청에는 '요청' 이력을 채운다.
-     */
-    private void upgradeExisting() {
-        if (users.findByEmail("hq@buildup.kr").isEmpty()) {
-            log.info("본사 데모 계정을 추가합니다.");
-            Company hq = companies.findByCode("250901").orElseGet(() -> {
-                Company c = new Company();
-                c.setName("한빛건설 본사");
-                c.setCode("250901");
-                return companies.save(c);
-            });
-            User jung = user("정본사", "hq@buildup.kr", "010-7777-8888", Role.HQ, null);
-            jung.setHqCompany(hq);
-            sites.findByCode("482915").ifPresent(s -> s.setCompany(hq));
-            sites.findByCode("731046").ifPresent(s -> s.setCompany(hq));
-        }
-        // 박철근: 본인 인력사무소의 최고 책임자로(한빛에는 계속 작업자로 참여). 처음 한 번만
-        users.findByEmail("park@buildup.kr").ifPresent(park -> {
-            if (park.getRole() == Role.WORKER) {
-                // 같은 시점에 이영호를 한빛건설 본사에 보고하는 관리자로(이후 사용자가 바꾸면 그대로 둔다)
-                companies.findByCode("250901").ifPresent(hq -> users.findByEmail("admin@buildup.kr")
-                        .filter(u -> u.getRole() == Role.ADMIN && u.getManagerCompany() == null)
-                        .ifPresent(u -> u.setManagerCompany(hq)));
-                log.info("박철근 계정을 최고 책임자 예시로 바꿉니다.");
-                park.setRole(Role.ADMIN);
-                park.setCompany("박철근 인력사무소");
-            }
-            if (sites.findByCode("615203").isEmpty()) {
-                seedIndependent(park, users.findByEmail("worker@buildup.kr").orElse(null));
-            }
-        });
-        materials.findAll().forEach(m -> {
-            if (m.getEvents().isEmpty()) {
-                m.addEvent(MaterialRequest.REQUESTED, m.getAuthor(), false, m.getCreatedAt());
-            }
-            // 발주·입고 단계를 없앤 뒤: 예전 발주·입고 상태는 승인으로, 이력에서도 뺀다
-            String st = m.getStatus();
-            if (MaterialRequest.LEGACY_ORDERED.equals(st) || MaterialRequest.LEGACY_DELIVERED.equals(st)) {
-                m.setStatus(MaterialRequest.APPROVED);
-            }
-            m.getEvents().removeIf(e -> MaterialRequest.LEGACY_ORDERED.equals(e.getStatus())
-                    || MaterialRequest.LEGACY_DELIVERED.equals(e.getStatus()));
-        });
     }
 
     private void seedAll() {
@@ -170,17 +119,18 @@ public class DemoDataSeeder implements CommandLineRunner {
         hq.setCode("250901");
         companies.save(hq);
 
-        User jung = user("정본사", "hq@buildup.kr", "010-7777-8888", Role.HQ, null);
-        jung.setHqCompany(hq);
-        User admin = user("이영호", "admin@buildup.kr", "010-1234-5678", Role.ADMIN, "한빛건설");
-        admin.setManagerCompany(hq); // 본사에 보고하는 현장 관리자
-        User kim = user("김현장", "worker@buildup.kr", "010-9876-5432", Role.WORKER, null);
+        // 본사 관리자(HQ_MANAGER): 본사를 등록한 사람
+        User jung = user("정본사", "hq@buildup.kr", "010-7777-8888", Role.WORKER);
+        jung.joinCompany(hq, true);
+        // 본사에 보고하는 현장 관리자(내 현장이 한빛건설 본사에 연결됨)
+        User admin = user("이영호", "admin@buildup.kr", "010-1234-5678", Role.ADMIN);
+        User kim = user("김현장", "worker@buildup.kr", "010-9876-5432", Role.WORKER);
         // 최고 책임자(본사 없음): 본인 현장을 운영하면서 한빛 현장에는 작업자로 참여
-        User park = user("박철근", "park@buildup.kr", "010-2222-3333", Role.ADMIN, "박철근 인력사무소");
-        User choi = user("최전기", "choi@buildup.kr", "010-4444-5555", Role.WORKER, null);
+        User park = user("박철근", "park@buildup.kr", "010-2222-3333", Role.ADMIN);
+        User choi = user("최전기", "choi@buildup.kr", "010-4444-5555", Role.WORKER);
 
         // 한빛: 골조·전기 지연, 설비 앞섬, 마감 정상 → 전체 '지연'
-        Site hanbit = site("한빛 오피스텔 신축공사", "강원 원주시 무실동 123-4", admin, "482915",
+        Site hanbit = site("한빛 오피스텔 신축공사", "강원 원주시 무실동 123-4", admin, "482915", "건축 신축 공사",
                 new double[] {68.5, 35.0, 28.5, 15.5},
                 new int[][] {{-60, 20}, {-40, 60}, {-30, 90}, {-20, 100}});
         hanbit.getMembers().add(new SiteMember(hanbit, admin, at(60, 9)));
@@ -191,7 +141,7 @@ public class DemoDataSeeder implements CommandLineRunner {
         sites.save(hanbit);
 
         // 세종: 대부분 앞섬, 관리자만 참여(작업자는 코드 731046으로 참여 테스트)
-        Site sejong = site("세종 물류센터 증축공사", "세종시 연서면 산단로 56", admin, "731046",
+        Site sejong = site("세종 물류센터 증축공사", "세종시 연서면 산단로 56", admin, "731046", "증축 공사",
                 new double[] {92.0, 60.5, 55.0, 30.0},
                 new int[][] {{-120, 10}, {-60, 60}, {-60, 60}, {-30, 90}});
         sejong.getMembers().add(new SiteMember(sejong, admin, at(120, 9)));
@@ -226,6 +176,8 @@ public class DemoDataSeeder implements CommandLineRunner {
         s.setAddress("강원 원주시 단구동 45-2");
         s.setOwner(park);
         s.setCode("615203");
+        s.setWorkType("주택 리모델링 공사");
+        s.setProgressMode(Site.MODE_AUTO);
         String[][] procs = {{"demolish", "철거"}, {"piping", "설비 교체"}, {"interior", "내장 마감"}};
         double[] weights = {20, 30, 50};
         double[] progress = {100, 55, 10};
@@ -315,23 +267,25 @@ public class DemoDataSeeder implements CommandLineRunner {
         return m;
     }
 
-    private User user(String name, String email, String phone, Role role, String company) {
+    private User user(String name, String email, String phone, Role role) {
         User u = new User();
         u.setName(name);
         u.setEmail(email);
         u.setPhone(phone);
         u.setRole(role);
-        u.setCompany(company);
         u.setPasswordHash(passwordEncoder.encode("1234"));
         return users.save(u);
     }
 
-    private Site site(String name, String address, User owner, String code, double[] progress, int[][] plans) {
+    private Site site(String name, String address, User owner, String code, String workType,
+            double[] progress, int[][] plans) {
         Site s = new Site();
         s.setName(name);
         s.setAddress(address);
+        s.setWorkType(workType);
         s.setOwner(owner);
         s.setCode(code);
+        s.setProgressMode(Site.MODE_AUTO);
         for (int i = 0; i < DEMO_PROCESSES.size(); i++) {
             Object[] d = DEMO_PROCESSES.get(i);
             s.getProcesses().add(new SiteProcess(s, (String) d[0], (String) d[1], (double) d[2], i));
@@ -360,6 +314,7 @@ public class DemoDataSeeder implements CommandLineRunner {
             r.setSite(site);
             r.setProcessKey(key);
             r.setProcessName(process.getName());
+            r.setWork(process.getName() + " 작업");
             r.setFromProgress(from);
             r.setToProgress(to);
             r.setMemo(i < memos.size() ? memos.get(i) : "");
@@ -368,6 +323,7 @@ public class DemoDataSeeder implements CommandLineRunner {
             r.setEquipment("frame".equals(key) && i % 2 == 0 ? "타워크레인 1, 펌프카 1" : "");
             r.setAuthor(authors.get(i % authors.size()));
             r.setCreatedAt(at(lastDaysAgo + i * every, 16 + (i % 2)));
+            r.setUpdatedAt(r.getCreatedAt());
             // 공정별 가장 최근 보고(현장 총관리자가 아닌 사람이 쓴 것)만 검토 대기, 나머지는 승인된 것으로
             boolean ownerWrote = r.getAuthor().getId() != null && r.getAuthor().getId().equals(site.getOwner().getId());
             r.setReviewStatus(i == 0 && !ownerWrote ? Report.PENDING : Report.APPROVED);

@@ -37,12 +37,13 @@ public class RefreshToken {
     @JoinColumn(name = "user_id")
     private User user;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "datetime(6)")
     private Instant expiresAt;
 
+    @Column(columnDefinition = "datetime(6)")
     private Instant revokedAt;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "datetime(6)")
     private Instant createdAt = Instant.now();
 
     public RefreshToken(String tokenHash, User user, Instant expiresAt) {

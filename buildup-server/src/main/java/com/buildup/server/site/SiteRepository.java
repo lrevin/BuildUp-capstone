@@ -20,4 +20,7 @@ public interface SiteRepository extends JpaRepository<Site, Long> {
 
     /** 본사에 연결된 현장 */
     List<Site> findByCompanyIdOrderById(Long companyId);
+
+    /** 현장 관리자가 보고하는 본사 = 가장 최근에 만든, 본사에 연결된 내 현장의 본사 */
+    Optional<Site> findFirstByOwnerIdAndCompanyIsNotNullOrderByCreatedAtDescIdDesc(Long ownerId);
 }

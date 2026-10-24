@@ -26,13 +26,13 @@ public class Company {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 80)
+    @Column(nullable = false, length = 100)
     private String name;
 
     /** 6자리 본사 코드(현장 참여 코드와는 별개) */
-    @Column(nullable = false, unique = true, length = 6)
+    @Column(nullable = false, unique = true, length = 50)
     private String code;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "datetime(6)")
     private Instant createdAt = Instant.now();
 }

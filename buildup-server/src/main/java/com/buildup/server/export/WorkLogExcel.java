@@ -133,7 +133,7 @@ final class WorkLogExcel {
             num(row, 11, rep.getPhotos().size(), number);
             num(row, 12, rep.getFiles().size(), number);
             cell(row, 13, REVIEW.getOrDefault(rep.status(), ""), center);
-            cell(row, 14, rep.getReviewComment(), wrap);
+            cell(row, 14, rep.lastReview() == null ? null : rep.lastReview().getComment(), wrap);
         }
         sh.setAutoFilter(new CellRangeAddress(first - 1, r - 1, 0, cols.length - 1));
     }
