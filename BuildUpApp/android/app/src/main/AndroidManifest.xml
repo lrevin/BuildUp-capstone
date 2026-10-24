@@ -27,6 +27,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- 카카오 로그인을 마치면 서버가 buildupapp://oauth/kakao?ticket=... 로 앱을 다시 연다 -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="buildupapp" android:host="oauth" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>

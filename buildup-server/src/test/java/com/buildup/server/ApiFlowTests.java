@@ -15,6 +15,17 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+
+import com.buildup.server.auth.KakaoClient;
+import com.buildup.server.auth.VerificationSender;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import java.util.HashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -37,11 +48,19 @@ class ApiFlowTests {
     @Value("${local.server.port}")
     int port;
 
+    @Autowired
+    VerificationSender sender;
+
+    /** 카카오 서버 대신(테스트에서는 카카오에 접속하지 않는다) */
+    @MockitoBean
+    KakaoClient kakao;
+
     String admin;
     String worker;
     String hq;
 
-    record Res(int status, Map<String, Object> body, List<Object> list, byte[] bytes, String contentType) {}
+    record Res(int status, Map<String, Object> body, List<Object> list, byte[] bytes, String contentType,
+            java.net.http.HttpHeaders headers) {}
 
     @BeforeEach
     void login() throws Exception {
@@ -125,8 +144,8 @@ class ApiFlowTests {
                 "phone", "010-1111-2222", "password", "password123", "role", "system")).status()).isEqualTo(400);
 
         // 새 작업자를 만들어 사용 중지 → 바로 로그아웃, 로그인 불가 → 다시 사용
-        Res su = send("POST", "/api/auth/signup", null, Map.of("name", "중지시험", "email", "stop-test@buildup.kr",
-                "phone", "010-3333-4444", "password", "password123", "role", "worker"));
+        Res su = send("POST", "/api/auth/signup", null, verified(Map.of("name", "중지시험", "email", "stop-test@buildup.kr",
+                "phone", "010-3333-4444", "password", "password123", "role", "worker")));
         assertThat(su.status()).as(String.valueOf(su.body())).isEqualTo(200);
         String t = su.body().get("accessToken").toString();
         @SuppressWarnings("unchecked")
@@ -138,6 +157,179 @@ class ApiFlowTests {
         assertThat(send("PATCH", "/api/system/users/" + id, sys, Map.of("disabled", false)).status()).isEqualTo(200);
         assertThat(send("POST", "/api/auth/login", null,
                 Map.of("email", "stop-test@buildup.kr", "password", "password123")).status()).isEqualTo(200);
+    }
+
+    // ---------- 가입 인증(이메일·휴대폰 필수), 카카오 ----------
+
+    @Test
+    void 가입은_이메일과_휴대폰_인증을_마쳐야_된다() throws Exception {
+        Map<String, Object> form = Map.of("name", "인증시험", "email", "Verify-Test@buildup.kr",
+                "phone", "010-5555-6666", "password", "password123", "role", "worker");
+        // 인증 없이 가입 → 거절
+        Res no = send("POST", "/api/auth/signup", null, form);
+        assertThat(no.status()).isEqualTo(400);
+        assertThat(no.body().get("message")).isEqualTo("이메일 인증을 완료해 주세요.");
+        // 이미 가입된 이메일로는 코드를 보내지 않는다
+        assertThat(send("POST", "/api/auth/email/send", null, Map.of("email", "admin@buildup.kr")).status()).isEqualTo(409);
+
+        // 이메일 인증: 코드 받기 → 60초 안에 다시 받기는 막힘 → 틀린 코드 → 맞는 코드
+        Res sent = send("POST", "/api/auth/email/send", null, Map.of("email", "verify-test@buildup.kr"));
+        assertThat(sent.status()).isEqualTo(200);
+        assertThat(sent.body()).containsEntry("expiresInSeconds", 300).containsEntry("resendAfterSeconds", 60);
+        assertThat(send("POST", "/api/auth/email/send", null, Map.of("email", "verify-test@buildup.kr")).status())
+                .isEqualTo(429);
+        String code = sender.loggedCode("verify-test@buildup.kr");
+        String wrong = code.equals("000000") ? "111111" : "000000";
+        assertThat(send("POST", "/api/auth/email/verify", null,
+                Map.of("email", "verify-test@buildup.kr", "code", wrong)).status()).isEqualTo(400);
+        Res ev = send("POST", "/api/auth/email/verify", null, Map.of("email", "verify-test@buildup.kr", "code", code));
+        assertThat(ev.status()).isEqualTo(200);
+        String emailToken = ev.body().get("emailVerificationToken").toString();
+
+        // 이메일만 인증 → 휴대폰 인증이 없어서 거절
+        Map<String, Object> withEmail = new HashMap<>(form);
+        withEmail.put("emailVerificationToken", emailToken);
+        Res noPhone = send("POST", "/api/auth/signup", null, withEmail);
+        assertThat(noPhone.body().get("message")).isEqualTo("휴대폰 인증을 완료해 주세요.");
+
+        // 휴대폰 번호가 아니면 문자를 보내지 않는다
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", "02-123-4567")).status()).isEqualTo(400);
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", "010-5555-6666")).status()).isEqualTo(200);
+        Res pv = send("POST", "/api/auth/phone/verify", null,
+                Map.of("phone", "01055556666", "code", sender.loggedCode("01055556666")));
+        assertThat(pv.status()).isEqualTo(200);
+        String phoneToken = pv.body().get("phoneVerificationToken").toString();
+
+        // 인증한 번호와 다른 번호로 가입 → 거절
+        Map<String, Object> otherPhone = new HashMap<>(withEmail);
+        otherPhone.put("phone", "010-9999-0000");
+        otherPhone.put("phoneVerificationToken", phoneToken);
+        assertThat(send("POST", "/api/auth/signup", null, otherPhone).status()).isEqualTo(400);
+
+        Map<String, Object> ok = new HashMap<>(withEmail);
+        ok.put("phoneVerificationToken", phoneToken);
+        Res su = send("POST", "/api/auth/signup", null, ok);
+        assertThat(su.status()).as(String.valueOf(su.body())).isEqualTo(200);
+        assertThat(su.body()).containsKeys("accessToken", "refreshToken");
+
+        // 쓴 인증은 다시 쓸 수 없다(같은 인증으로 계정을 또 만들 수 없게)
+        Map<String, Object> again = new HashMap<>(ok);
+        again.put("email", "verify-test2@buildup.kr");
+        assertThat(send("POST", "/api/auth/signup", null, again).status()).isEqualTo(400);
+    }
+
+    @Test
+    void 인증_코드를_5번_틀리면_다시_받아야_한다() throws Exception {
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", "010-7777-1234")).status()).isEqualTo(200);
+        String code = sender.loggedCode("01077771234");
+        String wrong = code.equals("000000") ? "111111" : "000000";
+        for (int i = 0; i < 4; i++) {
+            assertThat(send("POST", "/api/auth/phone/verify", null,
+                    Map.of("phone", "010-7777-1234", "code", wrong)).status()).isEqualTo(400);
+        }
+        assertThat(send("POST", "/api/auth/phone/verify", null,
+                Map.of("phone", "010-7777-1234", "code", wrong)).status()).isEqualTo(429);
+        // 맞는 코드여도 이미 버려진 코드라 안 된다
+        assertThat(send("POST", "/api/auth/phone/verify", null,
+                Map.of("phone", "010-7777-1234", "code", code)).status()).isEqualTo(400);
+    }
+
+    @Test
+    void 카카오_설정이_없으면_안내한다() {
+        KakaoClient off = new KakaoClient(JSON, "", "", "");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> off.fromAccessToken("x"))
+                .hasMessage("카카오 로그인이 아직 설정되지 않았어요.");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> off.fromCode("c", "http://localhost/cb"))
+                .hasMessage("카카오 로그인이 아직 설정되지 않았어요.");
+    }
+
+    @Test
+    void 카카오_첫_로그인은_가입하고_다음부터는_바로_로그인() throws Exception {
+        when(kakao.fromAccessToken("kakao-token-1"))
+                .thenReturn(new KakaoClient.KakaoUser("9001", "kakao-user@kakao.com", "카카오사람"));
+        Res first = send("POST", "/api/auth/oauth/kakao", null, Map.of("accessToken", "kakao-token-1"));
+        assertThat(first.status()).isEqualTo(200);
+        assertThat(first.body()).containsEntry("signupRequired", true)
+                .containsEntry("email", "kakao-user@kakao.com").containsEntry("name", "카카오사람");
+        String signupToken = first.body().get("signupToken").toString();
+
+        // 카카오가 인증한 이메일 그대로 가입: 이메일 인증·비밀번호 없이, 휴대폰 인증만
+        Map<String, Object> form = new HashMap<>(Map.of("name", "카카오사람", "email", "kakao-user@kakao.com",
+                "phone", "010-8080-9090", "role", "worker", "signupToken", signupToken));
+        form.put("phoneVerificationToken", phoneToken("010-8080-9090"));
+        Res su = send("POST", "/api/auth/signup", null, form);
+        assertThat(su.status()).as(String.valueOf(su.body())).isEqualTo(200);
+
+        // 다음부터는 카카오로 바로 로그인, 비밀번호 로그인은 안 됨(비밀번호가 없는 계정)
+        Res again = send("POST", "/api/auth/oauth/kakao", null, Map.of("accessToken", "kakao-token-1"));
+        assertThat(again.status()).isEqualTo(200);
+        assertThat(again.body()).containsKeys("accessToken", "refreshToken").doesNotContainKey("signupRequired");
+        assertThat(send("POST", "/api/auth/login", null,
+                Map.of("email", "kakao-user@kakao.com", "password", "anything1")).status()).isEqualTo(401);
+    }
+
+    @Test
+    void 카카오_이메일로_이미_가입한_계정은_자동으로_연결하지_않는다() throws Exception {
+        when(kakao.fromAccessToken("kakao-token-admin"))
+                .thenReturn(new KakaoClient.KakaoUser("9002", "admin@buildup.kr", "이영호"));
+        Res r = send("POST", "/api/auth/oauth/kakao", null, Map.of("accessToken", "kakao-token-admin"));
+        assertThat(r.status()).isEqualTo(409);
+        assertThat(r.body().get("message")).isEqualTo("이미 이메일로 가입된 계정이에요. 이메일로 로그인해 주세요.");
+    }
+
+    @Test
+    void 앱_카카오_로그인은_브라우저에서_티켓으로_돌아온다() throws Exception {
+        when(kakao.authorizeUrl(anyString(), anyString()))
+                .thenAnswer(a -> "https://kauth.kakao.com/oauth/authorize?state=" + a.getArgument(1));
+        when(kakao.fromCode(eq("kakao-code"), anyString()))
+                .thenReturn(new KakaoClient.KakaoUser("9003", null, "이메일없음"));
+        Res start = send("GET", "/api/auth/oauth/kakao/start", null, null);
+        assertThat(start.status()).isEqualTo(302);
+        String location = start.headers().firstValue("Location").orElseThrow();
+        String state = location.substring(location.indexOf("state=") + 6);
+
+        // 다른 state로 돌아오면 거절(남이 만든 로그인 결과를 끼워 넣는 것 방지)
+        String badTicket = ticketFrom(send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=wrong", null, null));
+        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", badTicket)).status())
+                .isEqualTo(400);
+
+        Res cb = send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=" + state, null, null);
+        assertThat(cb.contentType()).contains("text/html");
+        String ticket = ticketFrom(cb);
+        Res r = send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket));
+        assertThat(r.status()).isEqualTo(200);
+        assertThat(r.body()).containsEntry("signupRequired", true).containsEntry("name", "이메일없음");
+        assertThat(r.body().get("email")).isNull();
+        // 티켓은 한 번만
+        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket)).status())
+                .isEqualTo(400);
+        // 같은 state는 다시 쓸 수 없다
+        String reused = ticketFrom(send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=" + state, null, null));
+        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", reused)).status())
+                .isEqualTo(400);
+    }
+
+    @Test
+    void 카카오_설정이_없는_서버에서_앱으로_시작하면_앱이_안내를_받는다() throws Exception {
+        when(kakao.authorizeUrl(anyString(), anyString())).thenThrow(new com.buildup.server.common.ApiException(
+                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "카카오 로그인이 아직 설정되지 않았어요."));
+        Res start = send("GET", "/api/auth/oauth/kakao/start", null, null);
+        assertThat(start.status()).isEqualTo(200);
+        Res r = send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticketFrom(start)));
+        assertThat(r.status()).isEqualTo(503);
+        assertThat(r.body().get("message")).isEqualTo("카카오 로그인이 아직 설정되지 않았어요.");
+    }
+
+    @Test
+    void 가짜_카카오_가입_토큰은_거절() throws Exception {
+        Map<String, Object> form = new HashMap<>(verified(Map.of("name", "카카오시험", "email", "kakao-test@buildup.kr",
+                "phone", "010-2468-1357", "role", "worker")));
+        form.put("signupToken", "st_fake");
+        assertThat(send("POST", "/api/auth/signup", null, form).status()).isEqualTo(400);
+        // 카카오 가입이 아니면 비밀번호가 있어야 한다
+        form.remove("signupToken");
+        Res noPw = send("POST", "/api/auth/signup", null, form);
+        assertThat(noPw.body().get("message")).isEqualTo("비밀번호를 입력해 주세요.");
     }
 
     // ---------- 권한 ----------
@@ -447,12 +639,39 @@ class ApiFlowTests {
         HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
         @SuppressWarnings("unchecked")
         Map<String, Object> map = res.body().length > 0 ? JSON.readValue(res.body(), Map.class) : Map.of();
-        return new Res(res.statusCode(), map, null, res.body(), "");
+        return new Res(res.statusCode(), map, null, res.body(), "", res.headers());
     }
 
     private static void field(ByteArrayOutputStream out, String boundary, String name, String value) throws Exception {
         out.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n")
                 .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String phoneToken(String phone) throws Exception {
+        String digits = phone.replaceAll("\\D", "");
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", digits)).status()).isEqualTo(200);
+        return send("POST", "/api/auth/phone/verify", null, Map.of("phone", digits, "code", sender.loggedCode(digits)))
+                .body().get("phoneVerificationToken").toString();
+    }
+
+    private static String ticketFrom(Res html) {
+        Matcher m = Pattern.compile("ticket=([0-9a-f]+)").matcher(new String(html.bytes(), StandardCharsets.UTF_8));
+        assertThat(m.find()).isTrue();
+        return m.group(1);
+    }
+
+    /** 가입 양식에 이메일·휴대폰 인증 결과를 붙인다(개발 모드라 코드는 서버가 기억해 둔 것을 읽는다) */
+    private Map<String, Object> verified(Map<String, Object> form) throws Exception {
+        String email = form.get("email").toString().trim().toLowerCase();
+        String phone = form.get("phone").toString().replaceAll("\\D", "");
+        assertThat(send("POST", "/api/auth/email/send", null, Map.of("email", email)).status()).isEqualTo(200);
+        Res ev = send("POST", "/api/auth/email/verify", null, Map.of("email", email, "code", sender.loggedCode(email)));
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", phone)).status()).isEqualTo(200);
+        Res pv = send("POST", "/api/auth/phone/verify", null, Map.of("phone", phone, "code", sender.loggedCode(phone)));
+        Map<String, Object> out = new HashMap<>(form);
+        out.put("emailVerificationToken", ev.body().get("emailVerificationToken"));
+        out.put("phoneVerificationToken", pv.body().get("phoneVerificationToken"));
+        return out;
     }
 
     @SuppressWarnings("unchecked")
@@ -479,6 +698,6 @@ class ApiFlowTests {
                 list = (List<Object>) l;
             }
         }
-        return new Res(res.statusCode(), map, list, res.body(), type);
+        return new Res(res.statusCode(), map, list, res.body(), type, res.headers());
     }
 }

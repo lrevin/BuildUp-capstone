@@ -201,6 +201,24 @@ SYSTEM_ADMIN_PASSWORD=12자이상비밀번호
   DB가 비어 있을 때 한 번 들어갑니다. **비밀번호가 1234라서 발표가 끝나면 꼭 지우고 재시작**하세요(이미 들어간 데이터는 남으니 필요 없으면 계정을 사용 중지).
 - API 문서(Swagger)는 운영에서 꺼져 있습니다. 발표 때만 `API_DOCS=true`를 추가하고 재시작하면 `https://도메인/swagger-ui.html`에서 보입니다.
 
-## F. 비용 주의
+## F. 가입 인증 메일·문자, 카카오 로그인 켜기
+
+가입할 때 **이메일 인증과 휴대폰 인증이 필수**입니다. 아래 값이 비어 있으면 실제로 보내지 않고
+서버 로그에 코드가 찍힙니다(`journalctl -u buildup -f`에서 `[개발 모드] ... 인증 코드 123456` 확인).
+발표 시연은 이 상태로도 됩니다.
+
+| 기능 | 준비할 것 | `buildup.env`에 넣을 값 |
+|---|---|---|
+| 인증 메일 | 팀 Gmail 계정 → 2단계 인증 켜기 → [앱 비밀번호](https://myaccount.google.com/apppasswords) 만들기 | `MAIL_USERNAME`(Gmail 주소), `MAIL_PASSWORD`(앱 비밀번호 16자리) |
+| 인증 문자 | [솔라피](https://solapi.com) 가입 → 발신번호 등록(본인 휴대폰 인증) → API Key 만들기. 문자 1건 약 20원 | `SMS_API_KEY`, `SMS_API_SECRET`, `SMS_FROM`(등록한 발신번호) |
+| 카카오 로그인 | [카카오 개발자](https://developers.kakao.com) → 애플리케이션 추가 → 카카오 로그인 켜기 → 동의 항목(닉네임, 카카오계정 이메일) → Redirect URI 등록 | `KAKAO_REST_API_KEY`(REST API 키), `KAKAO_CLIENT_SECRET`(보안 → Client Secret, 켰을 때만), `KAKAO_APP_ID`(앱 ID 숫자) |
+
+카카오 Redirect URI(둘 다 등록):
+- 앱: `https://도메인/api/auth/oauth/kakao/callback` (도메인이 없으면 `http://서버IP/api/auth/oauth/kakao/callback`)
+- 웹: `웹 주소/oauth/kakao/callback`
+
+> 키 값은 깃허브에 올리지 말고 `buildup.env`(권한 600)에만 넣으세요.
+
+## G. 비용 주의
 - 프리 티어(가입 12개월)라도 **RDS·EC2를 켜 둔 시간**, 탄력적 IP(연결 안 된 상태)에 요금이 붙을 수 있습니다.
 - 발표·시연이 끝나면 인스턴스를 **중지**하거나 삭제하세요. AWS 콘솔 → 결제 → **예산 알림**을 꼭 켜 두세요.

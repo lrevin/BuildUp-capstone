@@ -31,6 +31,11 @@ public class AttemptLimiter {
 
     /** 막혀 있으면 429(잠시 후 다시)로 거절 */
     public void check(String key, int max, Duration window, String what) {
+        checkLimit(key, max, window, what + " 너무 많이 틀렸어요.");
+    }
+
+    /** check와 같지만 안내 문구를 직접 정한다(예: 인증 코드 요청 횟수 제한) */
+    public void checkLimit(String key, int max, Duration window, String message) {
         Deque<Long> q = failures.get(key);
         if (q == null) {
             return;
@@ -45,7 +50,7 @@ public class AttemptLimiter {
                 long waitMs = q.peekFirst() + window.toMillis() - System.currentTimeMillis();
                 long minutes = Math.max(1, (waitMs + 59_999) / 60_000);
                 throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
-                        what + " 너무 많이 틀렸어요. " + minutes + "분 뒤에 다시 시도해 주세요.");
+                        message + " " + minutes + "분 뒤에 다시 시도해 주세요.");
             }
         }
     }

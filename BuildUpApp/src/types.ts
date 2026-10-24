@@ -34,9 +34,25 @@ export interface SignUpInput {
   name: string;
   email: string;
   phone: string;
-  password: string;
-  company?: string; // 현장 관리자: 회사·사무소명(선택) / 본사 관계자(새 본사 등록): 본사명
+  password?: string; // 카카오 가입(signupToken)이면 없음
+  company?: string; // 본사 관계자(새 본사 등록): 본사명
   companyCode?: string; // 본사 관계자: 합류할 본사 코드 / 현장 관리자: 보고할 본사 코드(없으면 최고 책임자)
+  emailVerificationToken?: string; // 이메일 인증 결과(카카오가 인증한 이메일이면 없어도 됨)
+  phoneVerificationToken?: string; // 휴대폰 인증 결과(필수)
+  signupToken?: string; // 카카오 첫 로그인 때 받은 가입 토큰
+}
+
+// 인증 코드를 보냄: 유효 시간, 다시 받을 수 있을 때까지(초)
+export interface CodeSent {
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+}
+
+// 카카오로 처음 온 사람: 가입 화면에서 이어서 가입
+export interface KakaoSignup {
+  signupToken: string;
+  email: string | null; // 카카오가 인증한 이메일(없으면 직접 입력 + 이메일 인증)
+  name: string | null;
 }
 
 // 현장 관리자 전환·보고 체계 변경

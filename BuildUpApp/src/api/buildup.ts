@@ -10,8 +10,10 @@ import {
 } from '../data/storage';
 import {
   AuthResponse,
+  CodeSent,
   CreateSiteInput,
   HqInfo,
+  KakaoSignup,
   ManagerInput,
   MaterialRequest,
   MaterialStatus,
@@ -146,6 +148,92 @@ export async function signUp(input: SignUpInput): Promise<User> {
   }
   const res = await api.post<AuthResponse>('/auth/signup', input);
   return startSession(res.data.user, res.data);
+}
+
+// ---- 가입 인증(이메일·휴대폰, 둘 다 필수) ----
+// 데모 모드는 코드를 보내지 않고, 6자리 숫자면 무엇이든 통과(시연용)
+
+const DEMO_SENT: CodeSent = { expiresInSeconds: 300, resendAfterSeconds: 60 };
+
+function demoCode(code: string, kind: string) {
+  if (!/^\d{6}$/.test(code.trim())) {
+    throw new ApiError('인증 코드 6자리를 입력해 주세요.');
+  }
+  return `demo-${kind}`;
+}
+
+export async function sendEmailCode(email: string): Promise<CodeSent> {
+  if (config.useDummy) {
+    await fakeDelay();
+    return DEMO_SENT;
+  }
+  const res = await api.post<CodeSent>('/auth/email/send', {
+    email: email.trim(),
+  });
+  return res.data;
+}
+
+/** 맞으면 가입에 같이 보낼 이메일 인증 토큰 */
+export async function verifyEmailCode(email: string, code: string) {
+  if (config.useDummy) {
+    await fakeDelay();
+    return demoCode(code, 'email');
+  }
+  const res = await api.post<{ emailVerificationToken: string }>(
+    '/auth/email/verify',
+    { email: email.trim(), code: code.trim() },
+  );
+  return res.data.emailVerificationToken;
+}
+
+export async function sendPhoneCode(phone: string): Promise<CodeSent> {
+  if (config.useDummy) {
+    await fakeDelay();
+    return DEMO_SENT;
+  }
+  const res = await api.post<CodeSent>('/auth/phone/send', { phone });
+  return res.data;
+}
+
+/** 맞으면 가입에 같이 보낼 휴대폰 인증 토큰 */
+export async function verifyPhoneCode(phone: string, code: string) {
+  if (config.useDummy) {
+    await fakeDelay();
+    return demoCode(code, 'phone');
+  }
+  const res = await api.post<{ phoneVerificationToken: string }>(
+    '/auth/phone/verify',
+    { phone, code: code.trim() },
+  );
+  return res.data.phoneVerificationToken;
+}
+
+// ---- 카카오 로그인(휴대폰 브라우저 → 서버 → 앱 buildupapp://oauth/kakao?ticket=) ----
+
+/** 브라우저로 열 주소: 서버가 카카오 로그인 화면으로 보내 준다 */
+export function kakaoStartUrl() {
+  return `${config.baseUrl}/auth/oauth/kakao/start`;
+}
+
+export type KakaoResult = { user: User } | { signup: KakaoSignup };
+
+/** 앱으로 돌아온 티켓으로 결과 받기: 가입된 사람은 로그인, 처음이면 가입 정보 */
+export async function kakaoTicket(ticket: string): Promise<KakaoResult> {
+  const res = await api.post<
+    AuthResponse | (KakaoSignup & { signupRequired: true })
+  >('/auth/oauth/kakao/ticket', { ticket });
+  const data = res.data;
+  if ('signupRequired' in data && data.signupRequired) {
+    return {
+      signup: {
+        signupToken: data.signupToken,
+        email: data.email ?? null,
+        name: data.name ?? null,
+      },
+    };
+  }
+  const auth = data as AuthResponse;
+  return { user: startSession(auth.user, auth) };
 }
 
 export function logout() {

@@ -56,8 +56,15 @@ public class User {
     @Column(name = "role", nullable = false, length = 30)
     private String dbRole = DB_USER;
 
-    @Column(nullable = false, length = 255)
+    /** 카카오로만 가입한 계정은 비어 있다(비밀번호 로그인 불가) */
+    @Column(length = 255)
     private String passwordHash;
+
+    @Column(columnDefinition = "datetime(6)")
+    private Instant emailVerifiedAt;
+
+    @Column(columnDefinition = "datetime(6)")
+    private Instant phoneVerifiedAt;
 
     @Column(nullable = false, columnDefinition = "datetime(6)")
     private Instant createdAt = Instant.now();

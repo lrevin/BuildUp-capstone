@@ -1028,8 +1028,16 @@ export const dummyDb = {
     if (users.some(u => u.email === email)) {
       throw new ApiError('이미 가입된 이메일입니다.');
     }
-    const { companyCode, company, ...rest } = input;
-    const row: UserRow = { ...rest, email, id: `u-${Date.now()}` };
+    // 데모 모드는 인증 토큰을 확인하지 않는다(시연용). 카카오 가입은 서버 모드에서만
+    const { companyCode, company } = input;
+    const row: UserRow = {
+      id: `u-${Date.now()}`,
+      role: input.role,
+      name: input.name,
+      email,
+      phone: input.phone,
+      password: input.password ?? '',
+    };
     if (input.role === 'admin') {
       // 본사 코드가 있으면 그 본사에 보고, 없으면 최고 책임자
       if (companyCode?.trim()) {

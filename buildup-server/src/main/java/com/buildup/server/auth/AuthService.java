@@ -6,6 +6,7 @@ import com.buildup.server.auth.AuthDtos.SignUpRequest;
 import com.buildup.server.common.ApiException;
 import com.buildup.server.common.AttemptLimiter;
 import java.time.Duration;
+import java.time.Instant;
 import com.buildup.server.hq.Company;
 import com.buildup.server.hq.CompanyRepository;
 import com.buildup.server.user.Role;
@@ -34,6 +35,10 @@ public class AuthService {
 
     private static final Duration WINDOW = Duration.ofMinutes(10);
     private final com.buildup.server.site.SiteRepository siteRepository;
+    private final SignupVerification verification;
+    private final KakaoClient kakao;
+    private final SocialAccountRepository socials;
+    private final Verifications verifications;
 
     @Transactional
     public AuthResponse login(LoginRequest req) {
@@ -43,7 +48,8 @@ public class AuthService {
         limiter.check(key, 5, WINDOW, "비밀번호를");
         limiter.check(ipKey, 30, WINDOW, "비밀번호를");
         User user = users.findByEmail(normalize(req.email()))
-                .filter(u -> passwordEncoder.matches(req.password(), u.getPasswordHash()))
+                // 카카오로만 가입한 계정은 비밀번호가 없다
+                .filter(u -> u.getPasswordHash() != null && passwordEncoder.matches(req.password(), u.getPasswordHash()))
                 .orElse(null);
         if (user == null) {
             limiter.fail(key);
@@ -64,6 +70,11 @@ public class AuthService {
         if (users.existsByEmail(email)) {
             throw ApiException.conflict("이미 가입된 이메일입니다.");
         }
+        SignupVerification.Checked checked = verification.check(req, email);
+        boolean hasPassword = req.password() != null && !req.password().isBlank();
+        if (checked.kakao() == null && !hasPassword) {
+            throw ApiException.badRequest("비밀번호를 입력해 주세요.");
+        }
         Role role = Role.fromApi(req.role());
         User user = new User();
         user.setName(req.name().trim());
@@ -82,9 +93,60 @@ public class AuthService {
             boolean joining = req.companyCode() != null && !req.companyCode().isBlank();
             user.joinCompany(hqCompany(req), !joining);
         }
-        user.setPasswordHash(passwordEncoder.encode(req.password()));
+        user.setPasswordHash(hasPassword ? passwordEncoder.encode(req.password()) : null);
+        Instant now = Instant.now();
+        user.setEmailVerifiedAt(checked.emailVerified() ? now : null);
+        user.setPhoneVerifiedAt(checked.phoneVerified() ? now : null);
         users.save(user);
+        if (checked.kakao() != null) {
+            String kakaoId = checked.kakao().target();
+            if (socials.findByProviderAndProviderUserId(SocialAccount.KAKAO, kakaoId).isPresent()) {
+                throw ApiException.conflict("이미 가입된 카카오 계정이에요. 카카오로 로그인해 주세요.");
+            }
+            socials.save(new SocialAccount(user, SocialAccount.KAKAO, kakaoId, checked.kakao().data().get("email")));
+        }
+        verification.consume(req);
         return issue(user);
+    }
+
+    /**
+     * 카카오 로그인: 연결된 계정이 있으면 로그인 응답, 처음이면 가입에 쓸 signupToken.
+     * 같은 이메일로 이메일 가입한 계정이 있으면 자동으로 연결하지 않는다(남의 계정에 들어가는 것 방지).
+     */
+    @Transactional
+    public Object kakaoLogin(AuthDtos.KakaoLoginRequest req) {
+        String ipKey = "kakao-ip:" + AttemptLimiter.clientIp();
+        limiter.check(ipKey, 30, WINDOW, "카카오 로그인을");
+        KakaoClient.KakaoUser k;
+        try {
+            k = req.accessToken() != null && !req.accessToken().isBlank()
+                    ? kakao.fromAccessToken(req.accessToken())
+                    : kakao.fromCode(req.code(), req.redirectUri());
+        } catch (ApiException e) {
+            limiter.fail(ipKey);
+            throw e;
+        }
+        var linked = socials.findByProviderAndProviderUserId(SocialAccount.KAKAO, k.id());
+        if (linked.isPresent()) {
+            User user = linked.get().getUser();
+            if (user.isDisabled()) {
+                throw ApiException.forbidden("사용이 중지된 계정이에요. 관리자에게 문의해 주세요.");
+            }
+            return issue(user);
+        }
+        if (k.email() != null && users.existsByEmail(k.email())) {
+            throw ApiException.conflict("이미 이메일로 가입된 계정이에요. 이메일로 로그인해 주세요.");
+        }
+        java.util.Map<String, String> data = new java.util.HashMap<>();
+        if (k.email() != null) {
+            data.put("email", k.email());
+        }
+        if (k.nickname() != null) {
+            data.put("name", k.nickname());
+        }
+        String token = verifications.grant(Verifications.Kind.KAKAO, k.id(), data, Verifications.KAKAO_TTL);
+        return new AuthDtos.SignupRequiredResponse(true, token, SocialAccount.KAKAO, k.email(), k.nickname(),
+                Verifications.KAKAO_TTL.toSeconds());
     }
 
     /** 본사 관계자: 본사 코드로 합류하거나 새 본사를 등록(6자리 코드 발급) */

@@ -27,6 +27,8 @@ dependencies {
 	// 로그인 토큰 JWT(서명·검증: Spring Security의 Nimbus JOSE)
 	implementation 'org.springframework.security:spring-security-oauth2-jose'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// 가입 이메일 인증 코드 보내기(Gmail SMTP 등)
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	compileOnly 'org.projectlombok:lombok'
 	// 작업일보 엑셀(.xlsx) 내보내기

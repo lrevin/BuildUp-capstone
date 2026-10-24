@@ -51,12 +51,17 @@ const OPTIONS: {
 
 export default function RoleSelectScreen({
   navigation,
+  route,
 }: ScreenProps<'RoleSelect'>) {
   const [role, setRole] = useState<Role | null>(null);
+  const kakao = route.params?.kakao;
 
   return (
     <View style={styles.root}>
-      <AppHeader title="회원가입" onBack={() => navigation.goBack()} />
+      <AppHeader
+        title={kakao ? '카카오로 가입' : '회원가입'}
+        onBack={() => navigation.goBack()}
+      />
 
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>어떤 역할로 가입하시나요?</Text>
@@ -106,7 +111,7 @@ export default function RoleSelectScreen({
         <Button
           title="다음"
           disabled={!role}
-          onPress={() => role && navigation.navigate('SignUp', { role })}
+          onPress={() => role && navigation.navigate('SignUp', { role, kakao })}
         />
       </BottomBar>
     </View>
