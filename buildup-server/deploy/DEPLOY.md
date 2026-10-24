@@ -34,6 +34,8 @@ GRANT ALL PRIVILEGES ON buildup.* TO 'buildup'@'localhost';
 exit
 ```
 
+표는 만들지 않아도 돼요. 서버가 처음 켜질 때 Flyway가 V1~V11 마이그레이션으로 만들어요.
+
 ## 3. 파일 올리기
 
 | 이 폴더의 파일 | 서버 위치 |
