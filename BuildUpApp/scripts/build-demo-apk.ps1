@@ -6,7 +6,9 @@ $app = Split-Path -Parent $PSScriptRoot
 $flag = Join-Path $app 'src\demoBuild.ts'
 $original = [IO.File]::ReadAllText($flag)
 
-$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
+# JDK 17: 이 경로가 있으면 쓰고, 없으면 각자 PC의 JAVA_HOME을 쓴다
+$jdk = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
+if (Test-Path $jdk) { $env:JAVA_HOME = $jdk }
 Remove-Item Env:NoDefaultCurrentDirectoryInExePath -ErrorAction SilentlyContinue
 
 try {
