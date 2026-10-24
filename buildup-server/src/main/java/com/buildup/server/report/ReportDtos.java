@@ -28,7 +28,7 @@ public final class ReportDtos {
     public record FileDto(String name, String url, long size) {
 
         static FileDto of(ReportFile f) {
-            return new FileDto(f.getName(), FileStorage.docUrl(f.getPath()), f.getSize());
+            return new FileDto(f.getName(), FileStorage.docUrl(f.key()), f.getSize());
         }
     }
 
@@ -36,7 +36,7 @@ public final class ReportDtos {
     public record PhotoDto(String url, String takenAt, Double latitude, Double longitude) {
 
         static PhotoDto of(ReportPhoto p) {
-            return new PhotoDto(FileStorage.url(p.getFileName()), Times.iso(p.getTakenAt()), p.getLatitude(), p.getLongitude());
+            return new PhotoDto(FileStorage.url(p.getKey()), Times.iso(p.getTakenAt()), p.getLatitude(), p.getLongitude());
         }
     }
 
@@ -47,11 +47,12 @@ public final class ReportDtos {
     public record ReviewDto(String status, String comment, String reviewer, String reviewedAt) {
 
         static ReviewDto of(Report r) {
+            ReportReviewEvent last = r.lastReview();
             return new ReviewDto(
                     r.status(),
-                    r.getReviewComment(),
-                    r.getReviewer() == null ? null : r.getReviewer().getName(),
-                    Times.iso(r.getReviewedAt()));
+                    last == null ? null : last.getComment(),
+                    last == null ? null : last.getReviewer().getName(),
+                    last == null ? null : Times.iso(last.getCreatedAt()));
         }
     }
 
@@ -85,18 +86,20 @@ public final class ReportDtos {
             boolean canDelete,
             boolean canReview) {
 
-        static ReportDto of(Report r, boolean canEdit, boolean canDelete, boolean canReview) {
+        /** overall: 이 보고 전·후 현장 전체 진행률(OverallProgress로 계산) */
+        static ReportDto of(Report r, double[] overall, boolean canEdit, boolean canDelete, boolean canReview) {
+            boolean process = r.isProcessReport();
             return new ReportDto(
                     String.valueOf(r.getId()),
                     String.valueOf(r.getSite().getId()),
                     r.getSite().getName(),
-                    r.getProcessKey(),
-                    r.getProcessName(),
+                    process ? r.getProcessKey() : Report.WORK_KEY,
+                    process ? r.getProcessName() : abbreviate(r.workText()),
                     r.workText(),
-                    r.getFromProgress(),
-                    r.getToProgress(),
-                    r.getProcessFrom(),
-                    r.getProcessTo(),
+                    overall[0],
+                    overall[1],
+                    process ? r.getFromProgress() : null,
+                    process ? r.getToProgress() : null,
                     r.photoFiles().stream().map(FileStorage::url).toList(),
                     r.getPhotos().stream().map(PhotoDto::of).toList(),
                     r.getFiles().stream().map(FileDto::of).toList(),
@@ -105,17 +108,24 @@ public final class ReportDtos {
                     r.getAuthor().getName(),
                     String.valueOf(r.getAuthor().getId()),
                     Times.iso(r.getCreatedAt()),
-                    Times.iso(r.getUpdatedAt()),
+                    Times.iso(r.editedAt()),
                     r.getLatitude() == null ? null : new LocationDto(r.getLatitude(), r.getLongitude(), r.getAccuracy()),
                     ReviewDto.of(r),
-                    findChecks(r),
+                    r.getChecks().stream().map(c -> new CheckDto(c.getCheckType(), c.getMessage())).toList(),
                     canEdit,
                     canDelete,
                     canReview);
         }
     }
 
-    /** 촬영 시각·위치로 의심스러운 점을 찾는다(막지는 않고 검토하는 사람에게 보여 준다) */
+    private static String abbreviate(String s) {
+        return s == null ? null : s.length() > 30 ? s.substring(0, 30) : s;
+    }
+
+    /**
+     * 촬영 시각·위치로 의심스러운 점을 찾는다(막지는 않고 검토하는 사람에게 보여 준다).
+     * 보고를 제출할 때 한 번 계산해서 report_checks에 저장한다.
+     */
     static List<CheckDto> findChecks(Report r) {
         List<CheckDto> out = new ArrayList<>();
         // 1) 오래된 사진: 제출보다 하루 이상 먼저 찍은 사진
@@ -141,10 +151,7 @@ public final class ReportDtos {
         }
         // 2) 제출 위치가 현장과 먼지
         if (r.getLatitude() == null) {
-            // 현장 위치를 저장하기 전에 올라온 보고(예전 보고)는 위치를 기록하지 않았으므로 알리지 않는다
-            if (site.getLocationUpdatedAt() != null && r.getCreatedAt().isAfter(site.getLocationUpdatedAt())) {
-                out.add(new CheckDto("no_location", "제출 위치 정보가 없어요"));
-            }
+            out.add(new CheckDto("no_location", "제출 위치 정보가 없어요"));
         } else {
             double d = PhotoMeta.distance(site.getLatitude(), site.getLongitude(), r.getLatitude(), r.getLongitude());
             double slack = r.getAccuracy() == null ? 0 : Math.min(r.getAccuracy(), 500);

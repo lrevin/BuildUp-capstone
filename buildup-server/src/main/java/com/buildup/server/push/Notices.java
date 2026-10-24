@@ -38,8 +38,9 @@ public class Notices {
     /** 승인·보완 요청 → 보고한 사람 */
     public void reportReviewed(Report r) {
         boolean ok = Report.APPROVED.equals(r.status());
+        String comment = r.lastReview() == null ? null : r.lastReview().getComment();
         String body = r.workText() + " " + pct(r.getToProgress())
-                + (r.getReviewComment() == null ? "" : " · " + r.getReviewComment());
+                + (comment == null ? "" : " · " + comment);
         push.notifyUsers(
                 List.of(r.getAuthor().getId()),
                 (ok ? "보고 승인 · " : "보완 요청 · ") + r.getSite().getName(),
@@ -50,8 +51,8 @@ public class Notices {
     /** 보완해서 다시 올림 → 보완을 요청한 사람(없으면 검토할 수 있는 사람들) */
     public void reportResubmitted(Report r) {
         Set<Long> to = new LinkedHashSet<>();
-        if (r.getReviewer() != null) {
-            to.add(r.getReviewer().getId());
+        if (r.lastReview() != null) {
+            to.add(r.lastReview().getReviewer().getId());
         } else {
             to.addAll(managers(r.getSite()));
         }

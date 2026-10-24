@@ -13,12 +13,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class MaterialItem {
 
-    @Column(nullable = false, length = 50)
+    @Column(nullable = false, length = 100)
     private String name;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "decimal(15,3)")
     private double quantity;
 
-    @Column(nullable = false, length = 10)
+    @Column(nullable = false, length = 30)
     private String unit;
 }

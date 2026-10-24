@@ -2,19 +2,20 @@ package com.buildup.server.report;
 
 import com.buildup.server.site.Site;
 import com.buildup.server.user.User;
-import jakarta.persistence.CollectionTable;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OrderColumn;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,18 +23,26 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** 공정 진척 보고 1건 */
+/**
+ * 진척 보고 1건 (DB 설계 V11 `reports`)
+ * - 직접 입력 현장: process_key·process_name 없음, from/to = 현장 전체 진행률
+ * - 자동 계산 현장: process_key·process_name = 보고한 공정, from/to = 그 공정의 진행률
+ *   (현장 전체 진행률 변화는 공정 가중치로 다시 계산해서 보여 준다)
+ */
 @Entity
-@Table(name = "reports", indexes = @Index(columnList = "site_id, process_key, createdAt"))
+@Table(name = "reports")
 @Getter
 @Setter
 @NoArgsConstructor
 public class Report {
 
-    /** 검토 상태: 대기 → 승인 / 보완 요청(작성자가 메모를 고치면 다시 대기) */
+    /** 검토 상태(API 값): 대기 → 승인 / 보완 요청(작성자가 메모를 고치면 다시 대기). DB에는 대문자로 저장 */
     public static final String PENDING = "pending";
     public static final String APPROVED = "approved";
     public static final String REVISION = "revision";
+
+    /** 직접 입력 보고를 API에서 부르는 공정 이름(예전 앱 호환) */
+    public static final String WORK_KEY = "work";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -43,93 +52,126 @@ public class Report {
     @JoinColumn(name = "site_id")
     private Site site;
 
-    @Column(name = "process_key", nullable = false, length = 20)
+    @Column(name = "process_key", length = 50)
     private String processKey;
 
-    @Column(nullable = false, length = 30)
+    @Column(name = "process_name", length = 100)
     private String processName;
 
-    /** 진행한 작업(보고하는 사람이 직접 입력). 예전 보고는 null → processName을 쓴다 */
-    @Column(length = 100)
+    /** 진행한 작업(보고하는 사람이 직접 입력, 자동 계산 현장은 비우면 '공정명 작업') */
+    @Column(nullable = false, length = 500)
     private String work;
 
-    public String workText() {
-        return work != null && !work.isBlank() ? work : processName;
-    }
-
-    /** 자동 계산 방식: 보고한 공정의 진행률(보고 전 → 후). 직접 입력 방식이면 null */
-    private Double processFrom;
-
-    private Double processTo;
-
-    /** 보고 전 현장 전체 진행률 → 보고 후 진행률(직접 입력이면 보고하는 사람이 입력, 자동이면 계산값) */
-    @Column(name = "from_progress", nullable = false)
+    /** 보고 전 → 후 진행률(직접 입력: 현장 전체, 자동 계산: 보고한 공정) */
+    @Column(name = "from_progress", nullable = false, columnDefinition = "decimal(5,2)")
     private double fromProgress;
 
-    @Column(name = "to_progress", nullable = false)
+    @Column(name = "to_progress", nullable = false, columnDefinition = "decimal(5,2)")
     private double toProgress;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Column(columnDefinition = "text")
     private String memo = "";
 
-    // ---- 작업일보 항목(선택) ----
-    @Column(length = 10)
-    private String weather; // sunny | cloudy | rain | snow
+    // ---- 작업일보 항목(예전 보고만, 지금은 받지 않음) ----
+    @Column(length = 100)
+    private String weather;
 
     private Integer workers;
 
-    @Column(nullable = false, length = 200)
+    @Column(columnDefinition = "text")
     private String equipment = "";
+
+    // ---- 제출 위치(보고를 제출할 때 휴대폰 GPS). 위치 권한을 안 주면 없음 ----
+    @Column(name = "submit_latitude", columnDefinition = "decimal(10,7)")
+    private Double latitude;
+
+    @Column(name = "submit_longitude", columnDefinition = "decimal(10,7)")
+    private Double longitude;
+
+    /** GPS 오차(m) */
+    @Column(name = "submit_accuracy", columnDefinition = "decimal(10,2)")
+    private Double accuracy;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "author_id")
     private User author;
 
-    @Column(nullable = false)
-    private Instant createdAt = Instant.now();
-
-    /** 메모를 고친 시각 */
-    private Instant updatedAt;
-
-    /** 업로드한 사진(uploads 폴더 기준 파일 이름 + 촬영 시각·위치) */
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "report_photos", joinColumns = @JoinColumn(name = "report_id"))
-    @OrderColumn(name = "position")
-    private List<ReportPhoto> photos = new ArrayList<>();
-
-    // ---- 제출 위치(보고를 제출할 때 휴대폰 GPS). 위치 권한을 안 주면 없음 ----
-    private Double latitude;
-
-    private Double longitude;
-
-    /** GPS 오차(m) */
-    private Double accuracy;
-
-    // ---- 검토(본사 또는 현장 총관리자) ----
-    /** null은 이 기능 전에 올라온 보고 → 승인으로 본다 */
-    @Column(length = 10)
+    /** 검토 상태(pending | approved | revision). 코멘트·검토한 사람은 reviewEvents */
+    @Convert(converter = ReviewStatusConverter.class)
+    @Column(name = "review_status", nullable = false, length = 20)
     private String reviewStatus = PENDING;
 
-    @Column(length = 500)
-    private String reviewComment;
+    @Column(nullable = false, columnDefinition = "datetime(6)")
+    private Instant createdAt = Instant.now();
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "reviewer_id")
-    private User reviewer;
+    /** 마지막으로 고친 시각(처음에는 만든 시각과 같다) */
+    @Column(nullable = false, columnDefinition = "datetime(6)")
+    private Instant updatedAt = createdAt;
 
-    private Instant reviewedAt;
+    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("position ASC")
+    private List<ReportPhoto> photos = new ArrayList<>();
+
+    /** 첨부 문서(엑셀·PDF·한글 등) */
+    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("position ASC")
+    private List<ReportFile> files = new ArrayList<>();
+
+    /** 검토 이력(승인·보완 요청) */
+    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC, id ASC")
+    private List<ReportReviewEvent> reviewEvents = new ArrayList<>();
+
+    /** 제출할 때 찾은 확인 결과(오래된 사진, 현장 밖 제출 등) */
+    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("position ASC")
+    private List<ReportCheck> checks = new ArrayList<>();
+
+    public String workText() {
+        return work != null && !work.isBlank() ? work : processName;
+    }
+
+    /** 자동 계산 현장에서 공정을 골라 올린 보고인가 */
+    public boolean isProcessReport() {
+        return processKey != null;
+    }
 
     public String status() {
         return reviewStatus == null ? APPROVED : reviewStatus;
     }
 
-    public List<String> photoFiles() {
-        return photos.stream().map(ReportPhoto::getFileName).toList();
+    /** 메모를 고쳤는가(만든 뒤 1초 넘게 지나서 바뀌었으면) */
+    public Instant editedAt() {
+        return updatedAt != null && Duration.between(createdAt, updatedAt).getSeconds() >= 1 ? updatedAt : null;
     }
 
-    /** 첨부 문서(엑셀·PDF·한글 등) */
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "report_files", joinColumns = @JoinColumn(name = "report_id"))
-    @OrderColumn(name = "position")
-    private List<ReportFile> files = new ArrayList<>();
+    public List<String> photoFiles() {
+        return photos.stream().map(ReportPhoto::getKey).toList();
+    }
+
+    public void addPhoto(ReportPhoto p) {
+        p.setReport(this);
+        p.setPosition(photos.size());
+        photos.add(p);
+    }
+
+    public void addFile(ReportFile f) {
+        f.setReport(this);
+        f.setPosition(files.size());
+        files.add(f);
+    }
+
+    public void addCheck(String type, String message) {
+        checks.add(new ReportCheck(this, checks.size(), type, message));
+    }
+
+    /** 가장 최근 검토(없으면 null) */
+    public ReportReviewEvent lastReview() {
+        return reviewEvents.isEmpty() ? null : reviewEvents.get(reviewEvents.size() - 1);
+    }
+
+    public void addReview(User reviewer, String status, String comment, Instant at) {
+        reviewEvents.add(new ReportReviewEvent(this, reviewer, status, comment, at));
+        reviewStatus = status;
+    }
 }

@@ -62,16 +62,16 @@ class ApiFlowTests {
     }
 
     @Test
-    void JWT_위조와_로그아웃한_토큰은_거절() throws Exception {
+    void JWT_위조한_토큰과_사용_중지한_계정은_거절() throws Exception {
         String t = token("worker@buildup.kr");
         assertThat(t.split("[.]")).hasSize(3); // 머리.내용.서명
         assertThat(send("GET", "/api/auth/me", t, null).status()).isEqualTo(200);
         // 서명 한 글자만 바꿔도 거절
         String forged = t.substring(0, t.length() - 2) + (t.endsWith("A") ? "BB" : "AA");
         assertThat(send("GET", "/api/auth/me", forged, null).status()).isEqualTo(401);
-        // 로그아웃하면 같은 토큰은 바로 무효
+        // 접근 토큰은 DB에 저장하지 않는다(팀 DB 설계): 로그아웃해도 만료 시각까지 유효, 리프레시 토큰만 막힌다
         assertThat(send("POST", "/api/auth/logout", t, null).status()).isEqualTo(200);
-        assertThat(send("GET", "/api/auth/me", t, null).status()).isEqualTo(401);
+        assertThat(send("GET", "/api/auth/me", t, null).status()).isEqualTo(200);
     }
 
     @Test
@@ -96,9 +96,8 @@ class ApiFlowTests {
         assertThat(send("GET", "/api/auth/me", access, null).body().get("role")).isEqualTo("hq");
         assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", "wrong")).status()).isEqualTo(401);
 
-        // 로그아웃하면 접근 토큰·리프레시 토큰 모두 무효
+        // 로그아웃하면 리프레시 토큰은 바로 무효(접근 토큰은 만료 시각까지 유효 — API 약속)
         assertThat(send("POST", "/api/auth/logout", access, Map.of("refreshToken", refresh)).status()).isEqualTo(200);
-        assertThat(send("GET", "/api/auth/me", access, null).status()).isEqualTo(401);
         assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", refresh)).status()).isEqualTo(401);
 
         // 헤더 없이 refreshToken만 보내도 로그아웃(API 약속)
@@ -236,12 +235,12 @@ class ApiFlowTests {
     }
 
     @Test
-    void 예전_공정_데이터를_현장_진행률로_바꿨다() throws Exception {
+    void 자동_계산_현장의_보고는_공정_진행률로_저장하고_전체_진행률을_계산해_보여준다() throws Exception {
         Map<String, Object> site = send("GET", "/api/sites/" + firstSiteId(admin), admin, null).body();
         assertThat(site.get("workType")).isEqualTo("건축 신축 공사");
         double overall = ((Number) site.get("overallProgress")).doubleValue();
         Map<String, Object> latest = items(send("GET", "/api/sites/" + site.get("id") + "/reports/page?size=1", admin, null)).get(0);
-        // 가장 최근 보고 뒤 진행률 = 현장 진행률, 진행한 작업이 채워져 있다
+        // 공정 보고를 처음부터 따라가 계산한 '가장 최근 보고 뒤 전체 진행률' = 현장 진행률
         assertThat(((Number) latest.get("to")).doubleValue()).isEqualTo(overall);
         assertThat(latest.get("work").toString()).isNotBlank();
     }

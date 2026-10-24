@@ -29,8 +29,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class ReportService {
 
     public static final int MAX_PHOTOS = 10;
-    /** 새 방식 보고의 공정 키(공정을 고르지 않는다) */
-    public static final String WORK_KEY = "work";
+    /** 직접 입력 보고를 API에서 부르는 공정 이름 */
+    public static final String WORK_KEY = Report.WORK_KEY;
     public static final int MAX_FILES = 5;
     private static final Set<String> WEATHERS = Set.of("sunny", "cloudy", "rain", "snow");
 
@@ -41,10 +41,74 @@ public class ReportService {
     private final Notices notices;
 
     /** 작성자는 수정 가능, (작성자 또는 현장 관리자) + 현장의 가장 최근 보고만 삭제 가능 */
-    private ReportDto toDto(Report r, User viewer, boolean isLatest) {
+    private ReportDto toDto(Report r, User viewer, boolean isLatest, Overall ov) {
         boolean isAuthor = r.getAuthor().getId().equals(viewer.getId());
         boolean canDelete = isLatest && (isAuthor || r.getSite().isOwner(viewer.getId()));
-        return ReportDto.of(r, isAuthor, canDelete, canReview(r, viewer));
+        return ReportDto.of(r, ov.of(r), isAuthor, canDelete, canReview(r, viewer));
+    }
+
+    private ReportDto toDto(Report r, User viewer, boolean isLatest) {
+        return toDto(r, viewer, isLatest, new Overall());
+    }
+
+    /**
+     * 보고 전·후 현장 전체 진행률.
+     * 직접 입력 보고는 보고에 적힌 값 그대로, 자동 계산 현장의 공정 보고는 그 현장 보고를 처음부터 다시 따라가며
+     * 공정 가중치로 계산한다(DB에는 공정 진행률만 저장되므로). 현장마다 한 번만 계산해서 기억한다.
+     */
+    final class Overall {
+        private final Map<Long, Map<Long, double[]>> bySite = new java.util.HashMap<>();
+
+        double[] of(Report r) {
+            if (!r.isProcessReport()) {
+                return new double[] {r.getFromProgress(), r.getToProgress()};
+            }
+            return bySite.computeIfAbsent(r.getSite().getId(), id -> replay(r.getSite()))
+                    .getOrDefault(r.getId(), new double[] {0, 0});
+        }
+    }
+
+    private Map<Long, double[]> replay(Site site) {
+        List<Report> rows = new ArrayList<>(reports.findBySiteIdOrderByCreatedAtDescIdDesc(site.getId()));
+        java.util.Collections.reverse(rows); // 오래된 순
+        Map<String, Double> weights = new java.util.HashMap<>();
+        Map<String, Double> state = new java.util.HashMap<>();
+        for (SiteProcess p : site.getProcesses()) {
+            weights.put(p.getKey(), p.getWeight());
+            state.put(p.getKey(), p.getProgress());
+        }
+        // 각 공정은 그 공정의 첫 보고 전 값에서 시작
+        java.util.Set<String> started = new java.util.HashSet<>();
+        for (Report r : rows) {
+            if (r.isProcessReport() && weights.containsKey(r.getProcessKey()) && started.add(r.getProcessKey())) {
+                state.put(r.getProcessKey(), r.getFromProgress());
+            }
+        }
+        Map<Long, double[]> out = new java.util.HashMap<>();
+        for (Report r : rows) {
+            if (!r.isProcessReport()) {
+                out.put(r.getId(), new double[] {r.getFromProgress(), r.getToProgress()});
+                continue;
+            }
+            double before = weighted(weights, state);
+            if (weights.containsKey(r.getProcessKey())) {
+                state.put(r.getProcessKey(), r.getToProgress());
+            }
+            out.put(r.getId(), new double[] {before, Math.max(before, weighted(weights, state))});
+        }
+        return out;
+    }
+
+    private static double weighted(Map<String, Double> weights, Map<String, Double> state) {
+        double total = weights.values().stream().mapToDouble(Double::doubleValue).sum();
+        if (total <= 0) {
+            return 0;
+        }
+        double sum = 0;
+        for (var e : weights.entrySet()) {
+            sum += state.getOrDefault(e.getKey(), 0.0) * e.getValue();
+        }
+        return Math.round(sum / total * 10) / 10.0;
     }
 
     /**
@@ -76,8 +140,9 @@ public class ReportService {
         List<Report> rows = reports.findBySiteIdOrderByCreatedAtDescIdDesc(siteId);
         // 목록이 최신순이라 처음 것이 현장의 가장 최근 보고
         Long latest = rows.isEmpty() ? null : rows.get(0).getId();
+        Overall ov = new Overall();
         return rows.stream()
-                .map(r -> toDto(r, viewer, r.getId().equals(latest)))
+                .map(r -> toDto(r, viewer, r.getId().equals(latest), ov))
                 .toList();
     }
 
@@ -88,8 +153,9 @@ public class ReportService {
             return List.of();
         }
         User viewer = viewer(userId);
+        Overall ov = new Overall();
         return reports.findTop100BySiteIdInOrderByCreatedAtDesc(siteIds).stream()
-                .map(r -> ReportDto.of(r, false, false, canReview(r, viewer)))
+                .map(r -> ReportDto.of(r, ov.of(r), false, false, canReview(r, viewer)))
                 .toList();
     }
 
@@ -111,8 +177,9 @@ public class ReportService {
         }
         // 삭제 가능 여부: 현장의 가장 최근 보고인지
         Long latest = reports.findFirstBySiteIdOrderByCreatedAtDescIdDesc(siteId).map(Report::getId).orElse(null);
+        Overall ov = new Overall();
         List<ReportDto> items = rows.stream()
-                .map(r -> toDto(r, viewer, r.getId().equals(latest)))
+                .map(r -> toDto(r, viewer, r.getId().equals(latest), ov))
                 .toList();
         if (cursor != null && !cursor.isBlank()) {
             return new ReportPageDto(items, next, null, null);
@@ -133,8 +200,10 @@ public class ReportService {
             rows = rows.subList(0, n);
         }
         User viewer = viewer(userId);
+        Overall ov = new Overall();
         return new ReportPageDto(
-                rows.stream().map(r -> ReportDto.of(r, false, false, canReview(r, viewer))).toList(), next, null, null);
+                rows.stream().map(r -> ReportDto.of(r, ov.of(r), false, false, canReview(r, viewer))).toList(),
+                next, null, null);
     }
 
     /** 현장별 확인하지 않은 보고 수(볼 수 없는 현장은 빼고 돌려준다) */
@@ -270,19 +339,18 @@ public class ReportService {
         Report r = new Report();
         r.setSite(site);
         r.setWork(workText);
-        r.setFromProgress(current);
         if (process != null) {
+            // 자동 계산: 보고에는 공정 진행률(보고 전 → 후)을 저장한다
             double pTo = Math.round(processTo * 10) / 10.0;
             r.setProcessKey(process.getKey());
             r.setProcessName(process.getName());
-            r.setProcessFrom(process.getProgress());
-            r.setProcessTo(pTo);
+            r.setFromProgress(process.getProgress());
+            r.setToProgress(pTo);
             process.setProgress(pTo);
             process.setLastReportedAt(now);
-            r.setToProgress(Math.max(current, site.weightedProgress()));
         } else {
-            r.setProcessKey(WORK_KEY);
-            r.setProcessName(workText.length() > 30 ? workText.substring(0, 30) : workText);
+            // 직접 입력: 현장 전체 진행률(보고 전 → 후)
+            r.setFromProgress(current);
             r.setToProgress(Math.round(to * 10) / 10.0);
         }
         r.setMemo(memo == null ? "" : memo.trim());
@@ -291,29 +359,34 @@ public class ReportService {
         r.setEquipment(log.equipment() == null ? "" : log.equipment().trim());
         r.setAuthor(author);
         r.setCreatedAt(now);
+        r.setUpdatedAt(now);
         r.setLatitude(at.latitude());
         r.setLongitude(at.longitude());
         r.setAccuracy(at.accuracy());
         // 본사 없는 현장의 총관리자(최고 책임자)가 올린 보고는 검토할 사람이 없으므로 바로 승인
         r.setReviewStatus(site.isOwner(userId) && site.getCompany() == null ? Report.APPROVED : Report.PENDING);
         // 사진 촬영 정보: 사진 파일의 EXIF가 있으면 그것을, 없으면 앱이 알려 준 촬영 시각
-        List<ReportPhoto> saved = new ArrayList<>();
         for (int i = 0; i < uploads.size(); i++) {
             MultipartFile f = uploads.get(i);
             PhotoMeta.Info meta = PhotoMeta.read(f);
             java.time.Instant taken = meta.takenAt() != null
                     ? meta.takenAt()
                     : PhotoMeta.parse(photoTakenAt != null && i < photoTakenAt.size() ? photoTakenAt.get(i) : null);
-            saved.add(new ReportPhoto(files.save(f), taken, meta.latitude(), meta.longitude()));
+            String original = f.getOriginalFilename() == null || f.getOriginalFilename().isBlank()
+                    ? "photo_" + i + ".jpg" : f.getOriginalFilename();
+            r.addPhoto(new ReportPhoto(files.save(f), original, f.getContentType(), f.getSize(),
+                    taken, meta.latitude(), meta.longitude()));
         }
-        r.setPhotos(saved);
-        r.setFiles(new ArrayList<>(docs.stream().map(files::saveDocument).toList()));
+        docs.forEach(d -> r.addFile(files.saveDocument(d)));
+        // 촬영 시각·위치 확인 결과를 제출할 때 저장(report_checks)
+        ReportDtos.findChecks(r).forEach(c -> r.addCheck(c.type(), c.message()));
         reports.save(r);
         notices.reportCreated(r);
-
-        site.setProgress(r.getToProgress());
-        site.setLastReportedAt(now);
-        return toDto(r, author, true);
+        // 응답의 전체 진행률: 직접 입력은 보고 값, 자동 계산은 공정을 바꾼 뒤 계산값
+        double[] overall = process != null
+                ? new double[] {current, Math.max(current, site.weightedProgress())}
+                : new double[] {r.getFromProgress(), r.getToProgress()};
+        return ReportDto.of(r, overall, true, true, canReview(r, author));
     }
 
     @Transactional
@@ -358,10 +431,7 @@ public class ReportService {
             }
             throw ApiException.forbidden("현장 총관리자나 본사 관계자만 검토할 수 있어요.");
         }
-        r.setReviewStatus(next);
-        r.setReviewComment(text.isEmpty() ? null : text);
-        r.setReviewer(viewer);
-        r.setReviewedAt(Instant.now());
+        r.addReview(viewer, next, text.isEmpty() ? null : text, Instant.now());
         notices.reportReviewed(r);
         return toDto(r, viewer, isLatest(r));
     }
@@ -374,14 +444,14 @@ public class ReportService {
             throw ApiException.forbidden("현장의 가장 최근 보고만, 작성자나 현장 관리자가 삭제할 수 있습니다.");
         }
         Site site = r.getSite();
-        double from = r.getFromProgress();
         String key = r.getProcessKey();
-        Double processFrom = r.getProcessFrom();
+        Double processFrom = r.isProcessReport() ? r.getFromProgress() : null;
         files.deleteAfterCommit(r.photoFiles(), r.getFiles());
         reports.delete(r);
         reports.flush();
 
-        // 진행률을 보고 전 값으로 되돌린다(자동 계산 현장은 보고한 공정의 진행률도)
+        // 자동 계산 현장은 보고한 공정의 진행률을 보고 전 값으로 되돌린다
+        // (직접 입력 현장의 전체 진행률은 '가장 최근 보고' 값이라 따로 되돌릴 것이 없다)
         if (processFrom != null) {
             site.getProcesses().stream().filter(p -> p.getKey().equals(key)).findFirst().ifPresent(p -> {
                 p.setProgress(processFrom);
@@ -392,10 +462,6 @@ public class ReportService {
                         .orElse(null));
             });
         }
-        site.setProgress(from);
-        site.setLastReportedAt(reports.findFirstBySiteIdOrderByCreatedAtDescIdDesc(site.getId())
-                .map(Report::getCreatedAt)
-                .orElse(null));
     }
 
     /** 보고를 제출한 위치(휴대폰 GPS). 없으면 NONE */

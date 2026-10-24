@@ -8,9 +8,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
 
-    List<User> findByHqCompanyIdOrderById(Long companyId);
+    /** 본사에 소속된 사람들(활성 소속) */
+    @org.springframework.data.jpa.repository.Query(
+            "select m.user from CompanyMembership m where m.company.id = :companyId and m.status = 'ACTIVE' order by m.user.id")
+    List<User> findByHqCompanyIdOrderById(@org.springframework.data.repository.query.Param("companyId") Long companyId);
 
     boolean existsByEmail(String email);
 
-    long countByRole(com.buildup.server.user.Role role);
 }

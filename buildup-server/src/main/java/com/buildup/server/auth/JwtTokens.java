@@ -1,6 +1,7 @@
 package com.buildup.server.auth;
 
 import com.buildup.server.user.User;
+import com.buildup.server.user.UserRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -29,7 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 접근 토큰(access token, JWT, HS256 서명). 기본 60분이 지나면 리프레시 토큰으로 새로 받는다.
  * (리프레시 토큰은 RefreshTokens)
  * - 토큰 안에 사용자 id(sub), 역할(role), 토큰 번호(jti), 만료 시각(exp)이 들어 있고 서버 비밀 키로 서명한다.
- * - 로그아웃하면 바로 막을 수 있도록 토큰 번호(jti)를 DB(auth_tokens)에 기록해 두고, 요청마다 기록이 있는지도 확인한다.
+ * - DB에 저장하지 않는다(DB 설계 V11). 로그아웃해도 접근 토큰은 만료 시각까지 유효하고, 리프레시 토큰만 바로 막는다.
+ *   요청마다 사용자가 있고 사용 중지되지 않았는지는 확인한다.
  * - 비밀 키: buildup.jwt-secret(운영은 JWT_SECRET 환경 변수, 32자 이상). 비어 있으면 서버를 켤 때마다 새로 만든다(재시작하면 다시 로그인).
  */
 @Component
@@ -39,16 +41,16 @@ public class JwtTokens {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String ISSUER = "buildup";
 
-    private final AuthTokenRepository tokens;
+    private final UserRepository users;
     private final Duration validFor;
     private final JwtEncoder encoder;
     private final JwtDecoder decoder;
 
     public JwtTokens(
-            AuthTokenRepository tokens,
+            UserRepository users,
             @Value("${buildup.access-minutes:60}") int accessMinutes,
             @Value("${buildup.jwt-secret:}") String secret) {
-        this.tokens = tokens;
+        this.users = users;
         this.validFor = Duration.ofMinutes(accessMinutes);
         SecretKey key = new SecretKeySpec(keyBytes(secret), "HmacSHA256");
         this.encoder = NimbusJwtEncoder.withSecretKey(key).build();
@@ -72,16 +74,12 @@ public class JwtTokens {
     /** 발급한 접근 토큰과 만료 시각 */
     public record Issued(String value, Instant expiresAt) {}
 
-    /** 로그인 성공·토큰 갱신 → 접근 토큰 발급(토큰 번호를 DB에 기록) */
-    @Transactional
+    /** 로그인 성공·토큰 갱신 → 접근 토큰 발급 */
     public Issued issue(User user) {
         Instant now = Instant.now();
-        // 만료된 기록 정리
-        tokens.deleteByCreatedAtBefore(now.minus(validFor));
         byte[] b = new byte[16];
         RANDOM.nextBytes(b);
         String jti = HexFormat.of().formatHex(b);
-        tokens.save(new AuthToken(jti, user));
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(ISSUER)
                 .subject(String.valueOf(user.getId()))
@@ -94,7 +92,7 @@ public class JwtTokens {
         return new Issued(encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue(), now.plus(validFor));
     }
 
-    /** 요청의 토큰 확인: 서명·만료가 맞고, 로그아웃하지 않은 토큰이면 사용자 id */
+    /** 요청의 토큰 확인: 서명·만료가 맞고, 사용 중인 사용자면 사용자 id */
     @Transactional(readOnly = true)
     public Optional<Long> verify(String token) {
         Jwt jwt = decode(token);
@@ -107,18 +105,7 @@ public class JwtTokens {
         } catch (NumberFormatException e) {
             return Optional.empty();
         }
-        return tokens.findWithUserByToken(jwt.getId())
-                .filter(t -> t.getUser().getId().equals(userId) && !t.getUser().isDisabled())
-                .map(t -> userId);
-    }
-
-    /** 로그아웃: 토큰 번호 기록을 지워 바로 무효로 */
-    @Transactional
-    public void revoke(String token) {
-        Jwt jwt = decode(token);
-        if (jwt != null && jwt.getId() != null) {
-            tokens.deleteById(jwt.getId());
-        }
+        return users.findById(userId).filter(u -> !u.isDisabled()).map(u -> userId);
     }
 
     private Jwt decode(String token) {

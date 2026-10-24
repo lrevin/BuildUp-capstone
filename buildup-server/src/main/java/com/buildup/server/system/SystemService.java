@@ -1,6 +1,6 @@
 package com.buildup.server.system;
 
-import com.buildup.server.auth.AuthTokenRepository;
+import com.buildup.server.auth.RefreshTokenRepository;
 import com.buildup.server.common.ApiException;
 import com.buildup.server.common.Times;
 import com.buildup.server.hq.CompanyRepository;
@@ -33,7 +33,7 @@ public class SystemService {
     private final ReportRepository reports;
     private final MaterialRequestRepository materials;
     private final CompanyRepository companies;
-    private final AuthTokenRepository tokens;
+    private final RefreshTokenRepository refreshTokens;
 
     public record Stats(
             Map<String, Long> usersByRole,
@@ -55,7 +55,7 @@ public class SystemService {
             boolean disabled) {
 
         static UserRow of(User u) {
-            String company = u.getHqCompany() != null ? u.getHqCompany().getName() : u.getCompany();
+            String company = u.getCompany();
             return new UserRow(String.valueOf(u.getId()), u.getName(), u.getEmail(), u.getPhone(), u.getRole().api(),
                     company, Times.iso(u.getCreatedAt()), u.isDisabled());
         }
@@ -83,7 +83,8 @@ public class SystemService {
     public Stats stats(Long userId) {
         requireSystem(userId);
         Map<String, Long> byRole = new LinkedHashMap<>();
-        Arrays.stream(Role.values()).forEach(r -> byRole.put(r.api(), users.countByRole(r)));
+        Arrays.stream(Role.values()).forEach(r -> byRole.put(r.api(), 0L));
+        users.findAll().forEach(u -> byRole.merge(u.getRole().api(), 1L, Long::sum));
         return new Stats(
                 byRole,
                 companies.count(),
@@ -102,8 +103,7 @@ public class SystemService {
                 .filter(u -> query.isEmpty()
                         || u.getName().toLowerCase().contains(query)
                         || u.getEmail().toLowerCase().contains(query)
-                        || (u.getCompany() != null && u.getCompany().toLowerCase().contains(query))
-                        || (u.getHqCompany() != null && u.getHqCompany().getName().toLowerCase().contains(query)))
+                        || (u.getCompany() != null && u.getCompany().toLowerCase().contains(query)))
                 .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
                 .limit(500)
                 .map(UserRow::of)
@@ -120,7 +120,9 @@ public class SystemService {
         }
         target.setDisabled(disabled);
         if (disabled) {
-            tokens.deleteByUserId(target.getId());
+            // 다시 로그인·토큰 갱신을 못 하게(접근 토큰도 요청마다 사용 중지 여부를 확인한다)
+            Instant now = Instant.now();
+            refreshTokens.findByUserIdAndRevokedAtIsNull(target.getId()).forEach(t -> t.setRevokedAt(now));
         }
         return UserRow.of(target);
     }

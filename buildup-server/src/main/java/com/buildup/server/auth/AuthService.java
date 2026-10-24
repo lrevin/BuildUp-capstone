@@ -71,21 +71,16 @@ public class AuthService {
         user.setPhone(req.phone().trim());
         user.setRole(role);
         if (role == Role.ADMIN) {
-            // 본사 코드가 있으면 그 본사에 보고, 없으면 최고 책임자
+            // 본사 코드를 넣었으면 맞는 코드인지만 확인한다. 본사 연결은 현장마다(현장 설정 → 본사 연결)
             String code = req.companyCode() == null ? "" : req.companyCode().trim();
             if (!code.isEmpty()) {
-                user.setManagerCompany(findCompany("company-code:ip:" + AttemptLimiter.clientIp(), code));
+                findCompany("company-code:ip:" + AttemptLimiter.clientIp(), code);
             }
-            String company = req.company() == null ? "" : req.company().trim();
-            user.setCompany(!company.isEmpty()
-                    ? company
-                    : user.getManagerCompany() != null ? user.getManagerCompany().getName() : null);
         }
         if (role == Role.HQ) {
-            // 새 본사를 등록한 사람 = 본사 관리자(보고 검토·자재 승인 가능), 본사 코드로 합류한 사람 = 본사 일반 직원
+            // 새 본사를 등록한 사람 = 본사 관리자(HQ_MANAGER), 본사 코드로 합류한 사람 = 본사 일반 직원(HQ_MEMBER)
             boolean joining = req.companyCode() != null && !req.companyCode().isBlank();
-            user.setHqCompany(hqCompany(req));
-            user.setHqManager(!joining);
+            user.joinCompany(hqCompany(req), !joining);
         }
         user.setPasswordHash(passwordEncoder.encode(req.password()));
         users.save(user);
@@ -141,29 +136,24 @@ public class AuthService {
         String code = companyCode == null ? "" : companyCode.trim();
         Company hq = code.isEmpty() ? null : findCompany("company-code:" + userId, code);
         u.setRole(Role.ADMIN);
-        u.setManagerCompany(hq);
-        if (company != null && !company.isBlank()) {
-            u.setCompany(company.trim());
-        } else if (u.getCompany() == null && hq != null) {
-            u.setCompany(hq.getName());
-        }
+        // 보고하는 본사는 현장마다 저장된다(DB 설계 V11 sites.company_id): 내가 만든 현장들의 연결을 바꾼다
         if (linkSites) {
             siteRepository.findOwnedBy(userId).forEach(s -> s.setCompany(hq));
         }
-        return UserDto.of(u);
+        siteRepository.flush();
+        return dto(u);
     }
 
     @Transactional(readOnly = true)
     public UserDto me(Long userId) {
         return users.findById(userId)
-                .map(UserDto::of)
+                .map(this::dto)
                 .orElseThrow(() -> ApiException.unauthorized("로그인이 필요합니다."));
     }
 
-    /** 로그아웃: 접근 토큰과 리프레시 토큰을 모두 바로 무효로 */
+    /** 로그아웃: 리프레시 토큰을 바로 무효로(접근 토큰은 만료 시각까지 유효, 앱·웹이 지운다) */
     @Transactional
     public void logout(String accessToken, String refreshToken) {
-        jwt.revoke(accessToken);
         refreshTokens.revoke(refreshToken);
     }
 
@@ -172,7 +162,7 @@ public class AuthService {
     public AuthResponse refresh(String refreshToken) {
         RefreshToken rt = refreshTokens.find(refreshToken);
         JwtTokens.Issued access = jwt.issue(rt.getUser());
-        return new AuthResponse(UserDto.of(rt.getUser()), access.value(), refreshToken, "Bearer",
+        return new AuthResponse(dto(rt.getUser()), access.value(), refreshToken, "Bearer",
                 access.expiresAt().toString(), rt.getExpiresAt().toString());
     }
 
@@ -180,8 +170,18 @@ public class AuthService {
     private AuthResponse issue(User user) {
         JwtTokens.Issued access = jwt.issue(user);
         RefreshTokens.Issued refresh = refreshTokens.issue(user);
-        return new AuthResponse(UserDto.of(user), access.value(), refresh.value(), "Bearer",
+        return new AuthResponse(dto(user), access.value(), refresh.value(), "Bearer",
                 access.expiresAt().toString(), refresh.expiresAt().toString());
+    }
+
+    /** 사용자 응답(현장 관리자는 보고하는 본사도) */
+    private UserDto dto(User u) {
+        Company reportingHq = u.getRole() == Role.ADMIN
+                ? siteRepository.findFirstByOwnerIdAndCompanyIsNotNullOrderByCreatedAtDescIdDesc(u.getId())
+                        .map(com.buildup.server.site.Site::getCompany)
+                        .orElse(null)
+                : null;
+        return UserDto.of(u, reportingHq);
     }
 
     private static String normalize(String email) {

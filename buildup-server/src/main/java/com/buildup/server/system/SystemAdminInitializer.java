@@ -50,7 +50,6 @@ public class SystemAdminInitializer implements CommandLineRunner {
         u.setEmail(e);
         u.setPhone("-");
         u.setRole(Role.SYSTEM);
-        u.setCompany("Build Up 운영팀");
         u.setPasswordHash(passwordEncoder.encode(password));
         users.save(u);
         log.info("시스템 관리자 계정을 만들었어요: {}", e);

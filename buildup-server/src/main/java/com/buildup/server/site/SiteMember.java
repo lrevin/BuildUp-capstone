@@ -16,7 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** 현장 참여자(코드로 참여하거나 현장을 만든 관리자) */
+/** 현장 참여자 (DB 설계 V11 `site_members`): OWNER(현장을 만든 관리자) | WORKER(코드로 참여) */
 @Entity
 @Table(
         name = "site_members",
@@ -38,12 +38,19 @@ public class SiteMember {
     @JoinColumn(name = "user_id")
     private User user;
 
-    @Column(nullable = false)
+    @Column(name = "member_role", nullable = false, length = 30)
+    private String memberRole = "WORKER";
+
+    @Column(nullable = false, length = 20)
+    private String status = "ACTIVE";
+
+    @Column(nullable = false, columnDefinition = "datetime(6)")
     private Instant joinedAt = Instant.now();
 
     public SiteMember(Site site, User user, Instant joinedAt) {
         this.site = site;
         this.user = user;
         this.joinedAt = joinedAt;
+        this.memberRole = user == site.getOwner() ? "OWNER" : "WORKER";
     }
 }

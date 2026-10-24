@@ -181,7 +181,6 @@ public class SiteService {
         }
         site.setLatitude(latitude);
         site.setLongitude(longitude);
-        site.setLocationUpdatedAt(latitude == null ? null : Instant.now());
         return toDto(site, userId);
     }
 
@@ -209,9 +208,11 @@ public class SiteService {
         site.setOwner(owner);
         site.setCode(newCode());
         site.setWorkType(workType(req.workType()));
-        site.setProgress(0.0);
-        // 보고하는 본사가 있으면 새 현장도 그 본사에 연결(없으면 최고 책임자 현장)
-        site.setCompany(owner.getManagerCompany());
+        site.setProgressMode(Site.MODE_MANUAL);
+        // 보고하는 본사가 있으면 새 현장도 그 본사에 연결(= 가장 최근에 만든, 본사에 연결된 내 현장의 본사)
+        site.setCompany(sites.findFirstByOwnerIdAndCompanyIsNotNullOrderByCreatedAtDescIdDesc(userId)
+                .map(Site::getCompany)
+                .orElse(null));
         site.getMembers().add(new SiteMember(site, owner, Instant.now()));
         if (Site.MODE_AUTO.equals(req.progressMode())) {
             applyMode(site, Site.MODE_AUTO, req.processes());
@@ -232,8 +233,7 @@ public class SiteService {
 
     private void applyMode(Site site, String mode, List<ProcessInput> input) {
         if (Site.MODE_MANUAL.equals(mode)) {
-            // 자동 → 직접: 지금 계산된 진행률에서 이어서 직접 입력. 공정은 남겨 둔다(다시 자동으로 바꿀 때 씀)
-            site.setProgress(site.overallProgress());
+            // 자동 → 직접: 공정은 남겨 둔다. 다음 직접 입력 보고 전까지는 공정으로 계산한 값에서 이어진다
             site.setProgressMode(Site.MODE_MANUAL);
             return;
         }
@@ -301,7 +301,6 @@ public class SiteService {
         }
         site.getProcesses().sort(Comparator.comparingInt(SiteProcess::getSortOrder));
         site.setProgressMode(Site.MODE_AUTO);
-        site.setProgress(site.weightedProgress());
     }
 
     @Transactional

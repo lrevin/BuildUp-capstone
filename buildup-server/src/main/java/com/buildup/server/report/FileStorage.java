@@ -119,11 +119,11 @@ public class FileStorage {
         } catch (IOException | RuntimeException e) {
             throw new IllegalStateException("파일 저장 실패", e);
         }
-        return new ReportFile(path, name, file.getSize());
+        return new ReportFile(path, name, file.getContentType(), file.getSize());
     }
 
     public void deleteDocuments(List<ReportFile> docs) {
-        docs.forEach(f -> store.delete(f.getPath()));
+        docs.forEach(f -> store.delete(f.key()));
     }
 
     /** 문서 주소(내려받을 때 원래 이름 그대로) */

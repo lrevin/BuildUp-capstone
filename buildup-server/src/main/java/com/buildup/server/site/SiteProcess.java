@@ -35,20 +35,21 @@ public class SiteProcess {
     private Site site;
 
     /** 공정 구분값(현장 안에서 겹치지 않음). 예전 데모: frame·electric·plumbing·finish, 새 공정: p1, p2 … */
-    @Column(name = "process_key", nullable = false, length = 20)
+    @Column(name = "process_key", nullable = false, length = 50)
     private String key;
 
-    @Column(nullable = false, length = 30)
+    @Column(nullable = false, length = 100)
     private String name;
 
     /** 가중치(%). 계산할 때 합계로 나누므로 예전 데이터(합계 1)도 그대로 쓴다 */
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "decimal(5,2)")
     private double weight;
 
     /** 마지막으로 보고된 누적 진행률(%) */
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "decimal(5,2)")
     private double progress;
 
+    @Column(columnDefinition = "datetime(6)")
     private Instant lastReportedAt;
 
     /** 공정 계획: 시작일에 0%, 완료일에 100% */
