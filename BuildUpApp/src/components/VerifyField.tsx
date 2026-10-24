@@ -63,6 +63,9 @@ export function VerifyField({
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
   const codeRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  // 지금 입력칸의 값(서버 응답이 오는 사이에 값을 바꿨으면 그 응답은 버린다)
+  const current = useRef(value);
+  current.current = value;
 
   // 남은 시간 표시용 1초 시계(코드를 보낸 동안만)
   useEffect(() => {
@@ -87,6 +90,9 @@ export function VerifyField({
       setSentTo(null);
       setCode('');
     }
+    // 다른 값은 바로 코드를 받을 수 있다(다시 받기 대기는 같은 값에만)
+    setResendAt(0);
+    setExpiresAt(0);
   };
 
   const onSend = async () => {
@@ -97,10 +103,14 @@ export function VerifyField({
     }
     setSending(true);
     try {
-      const r = await send(value);
+      const sentValue = value;
+      const r = await send(sentValue);
+      if (current.current !== sentValue) {
+        return;
+      }
       const t = Date.now();
       setNow(t);
-      setSentTo(value);
+      setSentTo(sentValue);
       setExpiresAt(t + r.expiresInSeconds * 1000);
       setResendAt(t + r.resendAfterSeconds * 1000);
       setCode('');
@@ -120,7 +130,12 @@ export function VerifyField({
     }
     setChecking(true);
     try {
-      onToken(await verify(value, code));
+      const checkedValue = value;
+      const newToken = await verify(checkedValue, code);
+      if (current.current !== checkedValue) {
+        return;
+      }
+      onToken(newToken);
       setSentTo(null);
       setCode('');
     } catch (e) {

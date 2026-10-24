@@ -58,6 +58,8 @@ dependencies {
 // 배포용 실행 파일 이름: build/libs/buildup-server.jar
 tasks.named('bootJar') {
 	archiveFileName = 'buildup-server.jar'
+	// 내 PC 전용 설정(DB 비밀번호 등)은 배포 파일에 넣지 않는다. 운영 서버는 buildup.env 환경 변수로
+	exclude '**/application-local.properties'
 }
 tasks.named('jar') {
 	enabled = false

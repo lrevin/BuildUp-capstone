@@ -55,6 +55,24 @@ public class AttemptLimiter {
         }
     }
 
+    /**
+     * 횟수 제한을 확인하면서 이번 시도도 한 번에 기록한다(동시에 몰아서 보내도 한도를 넘지 못하게).
+     * 예: 인증 코드 보내기 횟수
+     */
+    public void hit(String key, int max, Duration window, String message) {
+        Deque<Long> q = failures.computeIfAbsent(key, k -> new ArrayDeque<>());
+        synchronized (q) {
+            prune(q, window);
+            if (q.size() >= max) {
+                long waitMs = q.peekFirst() + window.toMillis() - System.currentTimeMillis();
+                long minutes = Math.max(1, (waitMs + 59_999) / 60_000);
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
+                        message + " " + minutes + "분 뒤에 다시 시도해 주세요.");
+            }
+            q.addLast(System.currentTimeMillis());
+        }
+    }
+
     public void fail(String key) {
         Deque<Long> q = failures.computeIfAbsent(key, k -> new ArrayDeque<>());
         synchronized (q) {

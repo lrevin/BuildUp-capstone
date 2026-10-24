@@ -15,8 +15,9 @@ interface AuthValue {
   restoring: boolean; // 저장된 로그인 확인 중
   login: (email: string, password: string) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<void>;
-  // 카카오 로그인 티켓 처리: 가입된 사람은 로그인하고 null, 처음 온 사람은 가입 정보
-  kakao: (ticket: string) => Promise<KakaoSignup | null>;
+  // 카카오 로그인 티켓 처리: 가입된 사람은 로그인하고 'login', 처음 온 사람은 가입 정보,
+  // 이 휴대폰에서 시작한 카카오 로그인이 아니면 null(무시)
+  kakao: (ticket: string) => Promise<KakaoSignup | 'login' | null>;
   logout: () => void;
   setUser: (user: User) => void; // 계정 정보가 바뀌었을 때(관리자 전환 등)
 }
@@ -52,9 +53,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp: async input => setUser(await apiAuth.signUp(input)),
       kakao: async ticket => {
         const r = await apiAuth.kakaoTicket(ticket);
+        if (!r) {
+          return null;
+        }
         if ('user' in r) {
           setUser(r.user);
-          return null;
+          return 'login';
         }
         return r.signup;
       },

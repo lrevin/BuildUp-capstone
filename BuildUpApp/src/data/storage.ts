@@ -11,6 +11,7 @@ const KEYS = {
   dummyDb: 'dummy-db-v10', // 데이터 모양이 바뀌면 버전을 올려 예전 저장본을 무시
   draft: (userId: string, siteId: string) => `draft:${userId}:${siteId}-v2`,
   seen: (userId: string) => `seen-reports:${userId}`, // { 현장 id: 마지막으로 본 시각 }
+  kakao: 'kakao-login', // 진행 중인 카카오 로그인 { key, startedAt }
 };
 
 async function readJson<T>(key: string): Promise<T | null> {
@@ -50,6 +51,20 @@ export const sessionStore = {
   load: () => readJson<SavedSession>(KEYS.session),
   save: (s: SavedSession) => writeJson(KEYS.session, s),
   clear: () => store.removeItem(KEYS.session).catch(() => {}),
+};
+
+// ---- 진행 중인 카카오 로그인 ----
+// 브라우저에 다녀오는 동안 안드로이드가 앱을 꺼도 이어서 처리할 수 있게 폰에 저장한다
+
+export interface PendingKakao {
+  key: string; // 서버가 준 값: 결과를 받을 때 같이 보낸다(이 휴대폰에서 시작한 로그인인지 확인)
+  startedAt: number;
+}
+
+export const kakaoStore = {
+  load: () => readJson<PendingKakao>(KEYS.kakao),
+  save: (p: PendingKakao) => writeJson(KEYS.kakao, p),
+  clear: () => store.removeItem(KEYS.kakao).catch(() => {}),
 };
 
 // ---- 더미 DB(서버 연동 전까지만 사용) ----

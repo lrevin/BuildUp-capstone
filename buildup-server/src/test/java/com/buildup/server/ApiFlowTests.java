@@ -242,7 +242,35 @@ class ApiFlowTests {
                 Map.of("phone", "010-7777-1234", "code", wrong)).status()).isEqualTo(429);
         // 맞는 코드여도 이미 버려진 코드라 안 된다
         assertThat(send("POST", "/api/auth/phone/verify", null,
-                Map.of("phone", "010-7777-1234", "code", code)).status()).isEqualTo(400);
+                Map.of("phone", "010-7777-1234", "code", code)).status()).isEqualTo(429);
+        // 5번 틀린 뒤에도 다시 받기 대기(60초)는 그대로(바로 새 코드를 받아 계속 맞혀 보지 못하게)
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", "010-7777-1234")).status())
+                .isEqualTo(429);
+    }
+
+    @Test
+    void 같은_번호로는_한_시간에_5번까지만_코드를_받는다() throws Exception {
+        // 60초 대기 때문에 실제로는 5번을 채우기 어렵지만, 번호마다 한도가 따로 있는지 확인(다른 번호는 영향 없음)
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", "010-3131-0001")).status()).isEqualTo(200);
+        assertThat(send("POST", "/api/auth/phone/send", null, Map.of("phone", "010-3131-0002")).status()).isEqualTo(200);
+    }
+
+    @Test
+    void 인증은_한_번만_쓸_수_있고_가입이_실패하면_되돌려진다() throws Exception {
+        Map<String, Object> form = verified(Map.of("name", "되돌림", "email", "undo-test@buildup.kr",
+                "phone", "010-4242-4242", "password", "password123", "role", "hq"));
+        // 본사 이름이 없어 가입 실패 → 인증은 되돌려져서, 고쳐서 다시 보내면 된다
+        Map<String, Object> bad = new HashMap<>(form);
+        Res fail = send("POST", "/api/auth/signup", null, bad);
+        assertThat(fail.status()).isEqualTo(400);
+        assertThat(fail.body().get("message")).isEqualTo("본사명을 입력해 주세요.");
+        Map<String, Object> ok = new HashMap<>(form);
+        ok.put("company", "되돌림건설");
+        assertThat(send("POST", "/api/auth/signup", null, ok).status()).isEqualTo(200);
+        // 같은 인증으로 두 번째 계정은 안 된다
+        Map<String, Object> again = new HashMap<>(ok);
+        again.put("email", "undo-test2@buildup.kr");
+        assertThat(send("POST", "/api/auth/signup", null, again).status()).isEqualTo(400);
     }
 
     @Test
@@ -294,39 +322,50 @@ class ApiFlowTests {
                 .thenAnswer(a -> "https://kauth.kakao.com/oauth/authorize?state=" + a.getArgument(1));
         when(kakao.fromCode(eq("kakao-code"), anyString()))
                 .thenReturn(new KakaoClient.KakaoUser("9003", null, "이메일없음"));
-        Res start = send("GET", "/api/auth/oauth/kakao/start", null, null);
-        assertThat(start.status()).isEqualTo(302);
-        String location = start.headers().firstValue("Location").orElseThrow();
-        String state = location.substring(location.indexOf("state=") + 6);
+        Res begin = send("POST", "/api/auth/oauth/kakao/begin", null, null);
+        assertThat(begin.status()).isEqualTo(200);
+        String url = begin.body().get("url").toString();
+        String key = begin.body().get("key").toString();
+        String state = url.substring(url.indexOf("state=") + 6);
 
-        // 다른 state로 돌아오면 거절(남이 만든 로그인 결과를 끼워 넣는 것 방지)
-        String badTicket = ticketFrom(send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=wrong", null, null));
-        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", badTicket)).status())
-                .isEqualTo(400);
+        Res start = send("GET", "/api/auth/oauth/kakao/start?state=" + state, null, null);
+        assertThat(start.status()).isEqualTo(302);
+        assertThat(start.headers().firstValue("Location").orElseThrow()).contains("state=" + state);
+
+        // 앱이 시작하지 않은 state로 돌아오면 앱으로 넘기지 않는다
+        Res bad = send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=wrong", null, null);
+        assertThat(new String(bad.bytes(), StandardCharsets.UTF_8)).contains("시간이 지났어요").doesNotContain("ticket=");
 
         Res cb = send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=" + state, null, null);
         assertThat(cb.contentType()).contains("text/html");
         String ticket = ticketFrom(cb);
-        Res r = send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket));
+        // 로그인을 시작한 앱의 key가 없거나 다르면 결과를 못 받는다(남이 보낸 링크로 로그인되는 것 방지)
+        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket)).status())
+                .isEqualTo(403);
+        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket, "key", "x" + key))
+                .status()).isEqualTo(403);
+        Res r = send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket, "key", key));
         assertThat(r.status()).isEqualTo(200);
         assertThat(r.body()).containsEntry("signupRequired", true).containsEntry("name", "이메일없음");
         assertThat(r.body().get("email")).isNull();
-        // 티켓은 한 번만
-        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket)).status())
-                .isEqualTo(400);
-        // 같은 state는 다시 쓸 수 없다
-        String reused = ticketFrom(send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=" + state, null, null));
-        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", reused)).status())
-                .isEqualTo(400);
+        // 티켓은 한 번만, state도 한 번만
+        assertThat(send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticket, "key", key))
+                .status()).isEqualTo(400);
+        Res reused = send("GET", "/api/auth/oauth/kakao/callback?code=kakao-code&state=" + state, null, null);
+        assertThat(new String(reused.bytes(), StandardCharsets.UTF_8)).doesNotContain("ticket=");
     }
 
     @Test
     void 카카오_설정이_없는_서버에서_앱으로_시작하면_앱이_안내를_받는다() throws Exception {
         when(kakao.authorizeUrl(anyString(), anyString())).thenThrow(new com.buildup.server.common.ApiException(
                 org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "카카오 로그인이 아직 설정되지 않았어요."));
-        Res start = send("GET", "/api/auth/oauth/kakao/start", null, null);
+        Map<String, Object> begin = send("POST", "/api/auth/oauth/kakao/begin", null, null).body();
+        String url = begin.get("url").toString();
+        Res start = send("GET", "/api/auth/oauth/kakao/start?state=" + url.substring(url.indexOf("state=") + 6),
+                null, null);
         assertThat(start.status()).isEqualTo(200);
-        Res r = send("POST", "/api/auth/oauth/kakao/ticket", null, Map.of("ticket", ticketFrom(start)));
+        Res r = send("POST", "/api/auth/oauth/kakao/ticket", null,
+                Map.of("ticket", ticketFrom(start), "key", begin.get("key")));
         assertThat(r.status()).isEqualTo(503);
         assertThat(r.body().get("message")).isEqualTo("카카오 로그인이 아직 설정되지 않았어요.");
     }

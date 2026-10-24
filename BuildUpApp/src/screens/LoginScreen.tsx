@@ -12,7 +12,7 @@ import {
 import { Text } from '../components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { config, errorMessage } from '../api/client';
-import { kakaoStartUrl } from '../api/buildup';
+import { kakaoBegin } from '../api/buildup';
 import { useAuth } from '../auth';
 import { useDialog } from '../components/Dialog';
 import { Button, Field, Logo } from '../components/ui';
@@ -53,12 +53,19 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
   };
 
   // 카카오: 휴대폰 브라우저로 카카오 로그인 → 끝나면 앱으로 돌아온다(App.tsx KakaoBridge)
-  const onKakao = () => {
+  const onKakao = async () => {
     if (config.useDummy) {
       dialog.toast('카카오 로그인은 서버에 연결했을 때 쓸 수 있어요', 'error');
       return;
     }
-    Linking.openURL(kakaoStartUrl()).catch(() =>
+    let url: string;
+    try {
+      url = await kakaoBegin();
+    } catch (e) {
+      dialog.toast(errorMessage(e).replace(/\.$/, ''), 'error');
+      return;
+    }
+    Linking.openURL(url).catch(() =>
       dialog.toast('브라우저를 열지 못했어요', 'error'),
     );
   };
