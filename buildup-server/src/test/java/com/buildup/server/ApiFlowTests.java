@@ -17,9 +17,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.buildup.server.auth.KakaoClient;
+import com.buildup.server.push.PushService;
 import com.buildup.server.auth.VerificationSender;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,6 +61,10 @@ class ApiFlowTests {
     /** 카카오 서버 대신(테스트에서는 카카오에 접속하지 않는다) */
     @MockitoBean
     KakaoClient kakao;
+
+    /** 휴대폰 알림(Firebase) 대신: 누구에게 무슨 알림을 보내려 했는지만 확인 */
+    @MockitoBean
+    PushService push;
 
     String admin;
     String worker;
@@ -332,6 +343,65 @@ class ApiFlowTests {
         assertThat(noPw.body().get("message")).isEqualTo("비밀번호를 입력해 주세요.");
     }
 
+    // ---------- 휴대폰 알림(FCM): 누구에게 보내는지 ----------
+
+    @Test
+    void 알림은_보고와_자재_요청에_관계된_사람에게만_간다() throws Exception {
+        String adminId = myId(admin);
+        String workerId = myId(worker);
+        String hqId = myId(hq);
+        String siteId = firstSiteId(worker);
+        clearInvocations(push);
+
+        // 작업자 보고 → 현장 총관리자 + 본사 관계자(보낸 사람은 빼고)
+        String reportId = submitReport(worker, siteId);
+        verify(push, timeout(3000)).notifyUsers(
+                argThat(ids -> ids.contains(Long.valueOf(adminId)) && ids.contains(Long.valueOf(hqId))
+                        && !ids.contains(Long.valueOf(workerId))),
+                startsWith("새 현장 보고 · "), any(), argThat(d -> "report".equals(d.get("type"))
+                        && siteId.equals(d.get("siteId"))));
+
+        // 본사 보완 요청 → 보고한 작업자
+        send("PATCH", "/api/reports/" + reportId + "/review", hq, Map.of("status", "revision", "comment", "다시"));
+        verify(push, timeout(3000)).notifyUsers(
+                argThat(ids -> ids.size() == 1 && ids.contains(Long.valueOf(workerId))),
+                startsWith("보완 요청 · "), any(), any());
+
+        // 작업자가 보완 → 보완을 요청한 본사 관계자
+        send("PATCH", "/api/reports/" + reportId, worker, Map.of("memo", "보완했습니다"));
+        verify(push, timeout(3000)).notifyUsers(
+                argThat(ids -> ids.size() == 1 && ids.contains(Long.valueOf(hqId))),
+                startsWith("보완 완료 · "), any(), any());
+
+        // 자재 요청 → 총관리자·본사, 승인 → 요청한 작업자
+        Map<String, Object> site = send("GET", "/api/sites/" + siteId, worker, null).body();
+        String processKey = ((Map<?, ?>) ((List<?>) site.get("processes")).get(0)).get("key").toString();
+        Res mr = send("POST", "/api/sites/" + siteId + "/materials", worker, Map.of("processKey", processKey,
+                "items", List.of(Map.of("name", "시멘트", "quantity", 3, "unit", "포")), "urgent", true));
+        assertThat(mr.status()).as(String.valueOf(mr.body())).isEqualTo(200);
+        verify(push, timeout(3000)).notifyUsers(
+                argThat(ids -> ids.contains(Long.valueOf(adminId)) && !ids.contains(Long.valueOf(workerId))),
+                startsWith("긴급 자재 요청 · "), argThat(b -> b.contains("시멘트 3포")),
+                argThat(d -> "material".equals(d.get("type"))));
+        send("PATCH", "/api/materials/" + mr.body().get("id") + "/status", admin, Map.of("status", "approved"));
+        verify(push, timeout(3000)).notifyUsers(
+                argThat(ids -> ids.size() == 1 && ids.contains(Long.valueOf(workerId))),
+                startsWith("자재 요청 승인 · "), any(), any());
+
+        send("DELETE", "/api/reports/" + reportId, worker, null);
+    }
+
+    @Test
+    void 알림_받을_휴대폰_등록과_삭제() throws Exception {
+        assertThat(send("POST", "/api/push/token", null, Map.of("token", "fcm-test-1")).status()).isEqualTo(401);
+        assertThat(send("POST", "/api/push/token", worker, Map.of("token", "")).status()).isEqualTo(400);
+        assertThat(send("POST", "/api/push/token", worker, Map.of("token", "fcm-test-1")).status()).isEqualTo(200);
+        // 같은 휴대폰으로 다른 계정에 로그인하면 그 계정으로 옮겨진다(두 번 등록해도 오류 없음)
+        assertThat(send("POST", "/api/push/token", admin, Map.of("token", "fcm-test-1")).status()).isEqualTo(200);
+        assertThat(send("POST", "/api/push/token", admin, Map.of("token", "fcm-test-1")).status()).isEqualTo(200);
+        assertThat(send("DELETE", "/api/push/token", admin, Map.of("token", "fcm-test-1")).status()).isEqualTo(200);
+    }
+
     // ---------- 권한 ----------
 
     @Test
@@ -562,6 +632,10 @@ class ApiFlowTests {
         Res r = send("POST", "/api/auth/login", null, Map.of("email", email, "password", "1234"));
         assertThat(r.status()).as(email + " 로그인").isEqualTo(200);
         return r.body().get("accessToken").toString();
+    }
+
+    private String myId(String token) throws Exception {
+        return send("GET", "/api/auth/me", token, null).body().get("id").toString();
     }
 
     private String firstSiteId(String token) throws Exception {

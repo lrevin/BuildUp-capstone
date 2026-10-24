@@ -825,7 +825,11 @@ export default function ReportScreen({
                         onSubmitEditing={commitValueText}
                         keyboardType="decimal-pad"
                         selectTextOnFocus
-                        accessibilityLabel="현장 전체 진행률 직접 입력"
+                        accessibilityLabel={
+                          isAuto
+                            ? `${proc?.name ?? '공정'} 진행률 입력`
+                            : '현장 전체 진행률 직접 입력'
+                        }
                       />
                       <Text style={styles.progressUnit}>%</Text>
                     </View>
