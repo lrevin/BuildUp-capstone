@@ -16,6 +16,7 @@ import com.buildup.server.user.UserRepository;
 import java.security.SecureRandom;
 import java.util.HexFormat;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,7 @@ public class AuthService {
     private final KakaoClient kakao;
     private final SocialAccountRepository socials;
     private final Verifications verifications;
+    private final org.springframework.transaction.support.TransactionTemplate tx;
 
     @Transactional
     public AuthResponse login(LoginRequest req) {
@@ -71,6 +73,16 @@ public class AuthService {
             throw ApiException.conflict("이미 가입된 이메일입니다.");
         }
         SignupVerification.Checked checked = verification.check(req, email);
+        try {
+            return createUser(req, email, checked);
+        } catch (RuntimeException e) {
+            // 가입이 안 됐으니 꺼내 쓴 인증을 되돌려 놓는다(다른 칸만 고쳐 다시 보내면 되게)
+            checked.undo().run();
+            throw e;
+        }
+    }
+
+    private AuthResponse createUser(SignUpRequest req, String email, SignupVerification.Checked checked) {
         boolean hasPassword = req.password() != null && !req.password().isBlank();
         if (checked.kakao() == null && !hasPassword) {
             throw ApiException.badRequest("비밀번호를 입력해 주세요.");
@@ -97,15 +109,24 @@ public class AuthService {
         Instant now = Instant.now();
         user.setEmailVerifiedAt(checked.emailVerified() ? now : null);
         user.setPhoneVerifiedAt(checked.phoneVerified() ? now : null);
-        users.save(user);
+        try {
+            users.saveAndFlush(user);
+        } catch (DataIntegrityViolationException e) {
+            // 같은 이메일로 동시에 가입한 경우
+            throw ApiException.conflict("이미 가입된 이메일입니다.");
+        }
         if (checked.kakao() != null) {
             String kakaoId = checked.kakao().target();
             if (socials.findByProviderAndProviderUserId(SocialAccount.KAKAO, kakaoId).isPresent()) {
                 throw ApiException.conflict("이미 가입된 카카오 계정이에요. 카카오로 로그인해 주세요.");
             }
-            socials.save(new SocialAccount(user, SocialAccount.KAKAO, kakaoId, checked.kakao().data().get("email")));
+            try {
+                socials.saveAndFlush(new SocialAccount(user, SocialAccount.KAKAO, kakaoId,
+                        checked.kakao().data().get("email")));
+            } catch (DataIntegrityViolationException e) {
+                throw ApiException.conflict("이미 가입된 카카오 계정이에요. 카카오로 로그인해 주세요.");
+            }
         }
-        verification.consume(req);
         return issue(user);
     }
 
@@ -113,10 +134,10 @@ public class AuthService {
      * 카카오 로그인: 연결된 계정이 있으면 로그인 응답, 처음이면 가입에 쓸 signupToken.
      * 같은 이메일로 이메일 가입한 계정이 있으면 자동으로 연결하지 않는다(남의 계정에 들어가는 것 방지).
      */
-    @Transactional
     public Object kakaoLogin(AuthDtos.KakaoLoginRequest req) {
         String ipKey = "kakao-ip:" + AttemptLimiter.clientIp();
         limiter.check(ipKey, 30, WINDOW, "카카오 로그인을");
+        // 카카오 서버 조회는 DB 작업(트랜잭션) 밖에서: 카카오가 느려도 DB 연결을 붙잡지 않게
         KakaoClient.KakaoUser k;
         try {
             k = req.accessToken() != null && !req.accessToken().isBlank()
@@ -126,6 +147,11 @@ public class AuthService {
             limiter.fail(ipKey);
             throw e;
         }
+        return tx.execute(status -> kakaoAccount(k));
+    }
+
+    /** 카카오 회원번호로 연결된 계정 찾기 → 로그인 응답 또는 가입 안내 */
+    private Object kakaoAccount(KakaoClient.KakaoUser k) {
         var linked = socials.findByProviderAndProviderUserId(SocialAccount.KAKAO, k.id());
         if (linked.isPresent()) {
             User user = linked.get().getUser();

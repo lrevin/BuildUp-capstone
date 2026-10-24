@@ -12,6 +12,7 @@ import { DialogProvider, useDialog } from './src/components/Dialog';
 import { PushData, listenPush, registerPush } from './src/push';
 import { Logo } from './src/components/ui';
 import { RootStackParamList } from './src/navigation';
+import { KakaoSignup } from './src/types';
 import AddSiteScreen from './src/screens/AddSiteScreen';
 import CreateSiteScreen from './src/screens/CreateSiteScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
@@ -184,12 +185,13 @@ function PushBridge() {
 const handledTickets = new Set<string>();
 
 function KakaoBridge() {
-  const { user, kakao } = useAuth();
+  const { user, restoring, kakao } = useAuth();
   const dialog = useDialog();
   const loggedIn = !!user;
 
   useEffect(() => {
-    if (loggedIn) {
+    // 저장된 로그인·서버 주소를 다 불러온 뒤에 처리한다(앱이 꺼졌다 켜지며 돌아온 경우)
+    if (restoring || loggedIn) {
       return;
     }
     const onUrl = async (url: string | null | undefined) => {
@@ -201,10 +203,10 @@ function KakaoBridge() {
       }
       handledTickets.add(m[1]);
       try {
-        const signup = await kakao(m[1]);
+        const r = await kakao(m[1]);
         // 처음 온 사람: 역할을 고르고 휴대폰 인증 등 나머지 정보를 받아 가입
-        if (signup && navigationRef.isReady()) {
-          navigationRef.navigate('RoleSelect', { kakao: signup });
+        if (r && r !== 'login') {
+          openSignup(r, 0);
         }
       } catch (e) {
         dialog.notice({
@@ -214,12 +216,20 @@ function KakaoBridge() {
         });
       }
     };
+    // 화면이 준비될 때까지 잠깐 기다렸다가 가입 화면으로
+    const openSignup = (signup: KakaoSignup, tries: number) => {
+      if (navigationRef.isReady()) {
+        navigationRef.navigate('RoleSelect', { kakao: signup });
+      } else if (tries < 20) {
+        setTimeout(() => openSignup(signup, tries + 1), 250);
+      }
+    };
     Linking.getInitialURL()
       .then(onUrl)
       .catch(() => {});
     const sub = Linking.addEventListener('url', e => onUrl(e.url));
     return () => sub.remove();
-  }, [loggedIn, kakao, dialog]);
+  }, [restoring, loggedIn, kakao, dialog]);
 
   return null;
 }

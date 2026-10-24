@@ -5,6 +5,7 @@ import { unregisterPush } from '../push';
 import {
   ServerConfig,
   dummyStore,
+  kakaoStore,
   serverConfigStore,
   sessionStore,
 } from '../data/storage';
@@ -210,18 +211,34 @@ export async function verifyPhoneCode(phone: string, code: string) {
 
 // ---- 카카오 로그인(휴대폰 브라우저 → 서버 → 앱 buildupapp://oauth/kakao?ticket=) ----
 
-/** 브라우저로 열 주소: 서버가 카카오 로그인 화면으로 보내 준다 */
-export function kakaoStartUrl() {
-  return `${config.baseUrl}/auth/oauth/kakao/start`;
+/**
+ * 카카오 로그인 시작: 서버가 준 key를 폰에 저장하고, 브라우저로 열 주소를 돌려준다.
+ * 결과는 이 key가 있어야 받을 수 있다(다른 사람이 보낸 로그인 링크로는 로그인되지 않게)
+ */
+export async function kakaoBegin() {
+  const res = await api.post<{ url: string; key: string }>(
+    '/auth/oauth/kakao/begin',
+  );
+  await kakaoStore.save({ key: res.data.key, startedAt: Date.now() });
+  return res.data.url;
 }
 
 export type KakaoResult = { user: User } | { signup: KakaoSignup };
 
-/** 앱으로 돌아온 티켓으로 결과 받기: 가입된 사람은 로그인, 처음이면 가입 정보 */
-export async function kakaoTicket(ticket: string): Promise<KakaoResult> {
+/**
+ * 앱으로 돌아온 티켓으로 결과 받기: 가입된 사람은 로그인, 처음이면 가입 정보.
+ * 이 휴대폰에서 시작한 카카오 로그인이 없으면(10분 지남 포함) null → 링크를 무시한다
+ */
+export async function kakaoTicket(ticket: string): Promise<KakaoResult | null> {
+  const pending = await kakaoStore.load();
+  if (!pending || Date.now() - pending.startedAt > 10 * 60 * 1000) {
+    await kakaoStore.clear();
+    return null;
+  }
+  await kakaoStore.clear(); // 티켓은 한 번만 쓸 수 있으니 결과와 상관없이 지운다
   const res = await api.post<
     AuthResponse | (KakaoSignup & { signupRequired: true })
-  >('/auth/oauth/kakao/ticket', { ticket });
+  >('/auth/oauth/kakao/ticket', { ticket, key: pending.key });
   const data = res.data;
   if ('signupRequired' in data && data.signupRequired) {
     return {

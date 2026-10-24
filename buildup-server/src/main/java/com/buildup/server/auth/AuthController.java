@@ -11,6 +11,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import com.buildup.server.common.ApiException;
+import com.buildup.server.common.AttemptLimiter;
+import java.time.Duration;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -33,6 +35,7 @@ public class AuthController {
     private final SignupVerification verification;
     private final KakaoClient kakao;
     private final KakaoAppLogin kakaoApp;
+    private final AttemptLimiter limiter;
 
     @Operation(summary = "로그인 → { user, accessToken, refreshToken, tokenType, accessTokenExpiresAt, refreshTokenExpiresAt }")
     @PostMapping("/login")
@@ -76,17 +79,33 @@ public class AuthController {
         return auth.kakaoLogin(req);
     }
 
-    // ---- 앱의 카카오 로그인(브라우저 → 서버 → 앱) ----
+    // ---- 앱의 카카오 로그인(브라우저 → 서버 → 앱). 흐름은 KakaoAppLogin 설명 참고 ----
 
-    @Operation(summary = "앱: 휴대폰 브라우저로 열면 카카오 로그인 화면으로 이동")
-    @GetMapping("/oauth/kakao/start")
-    public ResponseEntity<String> kakaoStart() {
+    @Operation(summary = "앱: 카카오 로그인 시작 → { url(브라우저로 열 주소), key(결과를 받을 때 보낼 값, 앱만 기억) }")
+    @PostMapping("/oauth/kakao/begin")
+    public Map<String, String> kakaoBegin() {
+        limiter.hit("kakao-begin:" + AttemptLimiter.clientIp(), 30, Duration.ofMinutes(10),
+                "카카오 로그인을 너무 많이 시도했어요.");
+        KakaoAppLogin.Started s = kakaoApp.begin();
+        String url = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/api/auth/oauth/kakao/start").queryParam("state", s.state()).toUriString();
+        return Map.of("url", url, "key", s.key());
+    }
+
+    @Operation(summary = "앱: begin에서 받은 주소를 휴대폰 브라우저로 열면 카카오 로그인 화면으로 이동")
+    @GetMapping(value = "/oauth/kakao/start", produces = MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> kakaoStart(@RequestParam(required = false) String state) {
+        String key = kakaoApp.keyOf(state);
+        if (key == null) {
+            return message("카카오 로그인 시간이 지났어요. 앱에서 다시 시도해 주세요.");
+        }
         try {
-            String url = kakao.authorizeUrl(kakaoCallbackUrl(), kakaoApp.newState());
+            String url = kakao.authorizeUrl(kakaoCallbackUrl(), state);
             return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
         } catch (ApiException e) {
             // 카카오 설정이 없는 서버 등: 브라우저에 오류 글자 대신 앱으로 돌아가 안내
-            return backToApp(new KakaoAppLogin.Result(null, e.getStatus().value(), e.getMessage()));
+            kakaoApp.useState(state);
+            return backToApp(new KakaoAppLogin.Result(null, e.getStatus().value(), e.getMessage()), key);
         }
     }
 
@@ -96,43 +115,56 @@ public class AuthController {
             @RequestParam(required = false) String code,
             @RequestParam(required = false) String state,
             @RequestParam(required = false) String error) {
+        String key = kakaoApp.useState(state);
+        if (key == null) {
+            return message("카카오 로그인 시간이 지났어요. 앱에서 다시 시도해 주세요.");
+        }
         KakaoAppLogin.Result result;
         if (error != null || code == null) {
             result = new KakaoAppLogin.Result(null, 400, "카카오 로그인을 취소했어요.");
-        } else if (!kakaoApp.useState(state)) {
-            result = new KakaoAppLogin.Result(null, 400, "카카오 로그인 시간이 지났어요. 다시 시도해 주세요.");
         } else {
             try {
                 result = new KakaoAppLogin.Result(
                         auth.kakaoLogin(new AuthDtos.KakaoLoginRequest(code, kakaoCallbackUrl(), null)), 200, null);
             } catch (ApiException e) {
                 result = new KakaoAppLogin.Result(null, e.getStatus().value(), e.getMessage());
+            } catch (RuntimeException e) {
+                result = new KakaoAppLogin.Result(null, 500, "카카오 로그인 중 문제가 생겼어요. 잠시 뒤에 다시 시도해 주세요.");
             }
         }
-        return backToApp(result);
+        return backToApp(result, key);
     }
 
     /** 결과를 일회용 티켓에 담아 앱(buildupapp://oauth/kakao)을 여는 작은 화면 */
-    private ResponseEntity<String> backToApp(KakaoAppLogin.Result result) {
-        String ticket = kakaoApp.ticket(result);
+    private ResponseEntity<String> backToApp(KakaoAppLogin.Result result, String key) {
+        String ticket = kakaoApp.ticket(result, key);
         String intent = "intent://oauth/kakao?ticket=" + ticket
                 + "#Intent;scheme=buildupapp;package=com.buildupapp;end";
-        String html = "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
-                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Build Up</title></head>"
-                + "<body style=\"font-family:sans-serif;text-align:center;padding:64px 24px;color:#111\">"
-                + "<p style=\"font-size:18px;font-weight:700\">Build Up 앱으로 돌아가는 중이에요</p>"
-                + "<p><a href=\"" + intent + "\" style=\"display:inline-block;margin-top:16px;padding:14px 28px;"
-                + "border-radius:12px;background:#F5B21F;color:#111;font-weight:700;text-decoration:none\">앱으로 돌아가기</a></p>"
-                + "<script>location.href=\"" + intent + "\";</script></body></html>";
-        return ResponseEntity.ok().contentType(new MediaType(MediaType.TEXT_HTML, java.nio.charset.StandardCharsets.UTF_8))
-                .header("Cache-Control", "no-store")
-                .body(html);
+        return html("Build Up 앱으로 돌아가는 중이에요",
+                "<p><a href=\"" + intent + "\" style=\"display:inline-block;margin-top:16px;padding:14px 28px;"
+                        + "border-radius:12px;background:#F5B21F;color:#111;font-weight:700;text-decoration:none\">"
+                        + "앱으로 돌아가기</a></p><script>location.href=\"" + intent + "\";</script>");
     }
 
-    @Operation(summary = "앱: 티켓으로 카카오 로그인 결과 받기 { ticket } → 로그인 응답 또는 { signupRequired, signupToken, ... }")
+    /** 앱으로 돌아가지 않고 안내만 보여 주는 화면(문구는 서버가 정한 고정 문장만) */
+    private static ResponseEntity<String> message(String text) {
+        return html(text, "<p style=\"color:#666\">이 창을 닫고 Build Up 앱으로 돌아가 주세요.</p>");
+    }
+
+    private static ResponseEntity<String> html(String title, String body) {
+        String page = "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
+                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Build Up</title></head>"
+                + "<body style=\"font-family:sans-serif;text-align:center;padding:64px 24px;color:#111\">"
+                + "<p style=\"font-size:18px;font-weight:700\">" + title + "</p>" + body + "</body></html>";
+        return ResponseEntity.ok().contentType(new MediaType(MediaType.TEXT_HTML, java.nio.charset.StandardCharsets.UTF_8))
+                .header("Cache-Control", "no-store")
+                .body(page);
+    }
+
+    @Operation(summary = "앱: 티켓으로 카카오 로그인 결과 받기 { ticket, key } → 로그인 응답 또는 { signupRequired, signupToken, ... }")
     @PostMapping("/oauth/kakao/ticket")
     public Object kakaoTicket(@RequestBody Map<String, String> req) {
-        return kakaoApp.redeem(req == null ? null : req.get("ticket"));
+        return kakaoApp.redeem(req == null ? null : req.get("ticket"), req == null ? null : req.get("key"));
     }
 
     /** 이 서버의 카카오 돌아오는 주소(카카오 개발자 콘솔 Redirect URI에 등록) */
