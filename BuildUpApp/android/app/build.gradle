@@ -101,13 +101,15 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            manifestPlaceholders = [allowHttp: "true"]
         }
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
-            // 팀 서버를 같은 와이파이의 PC(http://)로 접속하기 위해 허용. HTTPS 서버로 옮기면 false로.
-            manifestPlaceholders = [usesCleartextTraffic: "true"]
+            // http:// 서버(같은 와이파이의 PC, 도메인 없는 배포 서버) 접속 허용. https만 쓸 거면 false로.
+            // (이름이 usesCleartextTraffic이면 React Native 빌드 도구가 릴리스에서 false로 덮어써서 따로 이름을 씀)
+            manifestPlaceholders = [allowHttp: "true"]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

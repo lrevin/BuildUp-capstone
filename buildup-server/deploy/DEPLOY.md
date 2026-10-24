@@ -67,12 +67,53 @@ sudo nginx -t && sudo systemctl reload nginx
 
 3. 확인: 브라우저에서 `https://api.buildup.kr/api/health` → `{"status":"ok"...}`
 
-## 5. 앱 설정 바꾸기(https 주소가 정해진 뒤)
+### 도메인이 없을 때(발표·시연용, http)
 
-- 앱 `src/api/client.ts`의 `DEFAULT_BASE_URL`을 `https://api.buildup.kr/api`로 변경
-  (또는 앱의 서버 설정 화면에서 직접 입력)
-- `android/app/build.gradle`의 `usesCleartextTraffic`을 `"false"`로(http 차단)
-- 다시 빌드해서 배포
+도메인이 없으면 인증서(https)를 받을 수 없으니, 서버 IP로 http 접속합니다. 앱은 http 접속을 허용해 두었어요.
+
+1. `nginx-buildup.conf` 대신 아래 내용으로 `/etc/nginx/sites-available/buildup`을 만든다(certbot은 건너뜀)
+
+```
+server {
+    listen 80 default_server;
+    server_name _;
+    client_max_body_size 200m;
+    proxy_read_timeout 120s;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Port  $server_port;
+    }
+}
+```
+
+```
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo ln -s /etc/nginx/sites-available/buildup /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+2. 확인: `http://서버IP/api/health` → `{"status":"ok"...}`
+3. 앱 서버 주소: `http://서버IP/api`
+
+> 비밀번호가 암호화되지 않고 오가므로 발표 기간에만 쓰고, 계속 운영할 거면 도메인을 붙여 https로 바꾸세요.
+
+## 5. 최종 앱(APK) 만들기(서버 주소가 정해진 뒤)
+
+앱 폴더에서 서버 주소만 넣어 실행하면, 설치하자마자 그 서버에 붙는 APK가 나옵니다.
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\build-server-apk.ps1 -ServerUrl https://api.buildup.kr/api
+```
+
+- 도메인이 없으면 `-ServerUrl http://서버IP/api`
+- 결과: 앱 폴더 위에 `BuildUp.apk` (스크립트가 끝나면 코드의 주소·데모 설정은 원래대로 돌아감)
+- 이미 설치된 앱은 앱의 **서버 연결** 화면에서 주소를 바꿔도 됩니다.
+- https만 쓸 거면 `android/app/build.gradle` release의 `allowHttp`를 `"false"`로 바꿔 http를 막을 수 있어요.
 
 ## 6. 백업
 
@@ -156,6 +197,8 @@ SYSTEM_ADMIN_EMAIL=운영자이메일
 SYSTEM_ADMIN_PASSWORD=12자이상비밀번호
 ```
 - S3를 쓰면 `UPLOAD_DIR`·`backup.sh`의 사진 백업은 필요 없습니다(S3가 보관). DB 백업은 RDS 자동 백업(기본 7일)을 켜 두세요.
+- 발표 시연에 테스트 계정(`admin@buildup.kr` 등, 비밀번호 `1234`)과 예시 현장이 필요하면 `SEED_DEMO=true`를 추가하고 재시작하세요.
+  DB가 비어 있을 때 한 번 들어갑니다. **비밀번호가 1234라서 발표가 끝나면 꼭 지우고 재시작**하세요(이미 들어간 데이터는 남으니 필요 없으면 계정을 사용 중지).
 - API 문서(Swagger)는 운영에서 꺼져 있습니다. 발표 때만 `API_DOCS=true`를 추가하고 재시작하면 `https://도메인/swagger-ui.html`에서 보입니다.
 
 ## F. 비용 주의
