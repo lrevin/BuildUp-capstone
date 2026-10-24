@@ -1,11 +1,11 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Report, Role } from './types';
+import { KakaoSignup, Report, Role } from './types';
 
 // 로그인 전 화면
 export type AuthStackParamList = {
   Login: undefined;
-  RoleSelect: undefined;
-  SignUp: { role: Role };
+  RoleSelect: { kakao?: KakaoSignup } | undefined; // 카카오로 처음 온 사람은 kakao를 들고 온다
+  SignUp: { role: Role; kakao?: KakaoSignup };
   Server: undefined; // 로그인 전·후 모두에서 연다
 };
 

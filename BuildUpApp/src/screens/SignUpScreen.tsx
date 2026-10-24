@@ -8,6 +8,13 @@ import {
 } from 'react-native';
 import { Text } from '../components/Text';
 import { errorMessage } from '../api/client';
+import {
+  sendEmailCode,
+  sendPhoneCode,
+  verifyEmailCode,
+  verifyPhoneCode,
+} from '../api/buildup';
+import { VerifyField } from '../components/VerifyField';
 import { useAuth } from '../auth';
 import { useDialog } from '../components/Dialog';
 import { AppHeader, BottomBar, Button, Field } from '../components/ui';
@@ -28,11 +35,18 @@ function formatPhone(v: string) {
   return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
 }
 
+// 휴대폰 번호(010·011·016~019로 시작하는 10~11자리)만 인증 문자를 받을 수 있다
+function checkPhone(v: string) {
+  return /^01[016789]\d{7,8}$/.test(v.replace(/\D/g, ''))
+    ? null
+    : '휴대폰 번호를 확인해 주세요.';
+}
+
 export default function SignUpScreen({
   navigation,
   route,
 }: ScreenProps<'SignUp'>) {
-  const { role } = route.params;
+  const { role, kakao } = route.params;
   const isAdmin = role === 'admin';
   const isHq = role === 'hq';
   const { signUp } = useAuth();
@@ -42,10 +56,14 @@ export default function SignUpScreen({
   const [reportMode, setReportMode] = useState<'hq' | 'top'>('top');
   const [companyCode, setCompanyCode] = useState('');
 
-  const [name, setName] = useState('');
+  const [name, setName] = useState(kakao?.name ?? '');
   const [company, setCompany] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(kakao?.email ?? '');
   const [phone, setPhone] = useState('');
+  // 인증 결과(이메일·휴대폰 둘 다 필수). 카카오가 인증한 이메일은 따로 인증하지 않는다
+  const kakaoEmail = !!kakao?.email;
+  const [emailToken, setEmailToken] = useState<string | null>(null);
+  const [phoneToken, setPhoneToken] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
   const [loading, setLoading] = useState(false);
@@ -67,13 +85,20 @@ export default function SignUpScreen({
     if (!EMAIL_RE.test(email.trim())) {
       return '이메일 형식이 올바르지 않아요.';
     }
-    if (phone.replace(/\D/g, '').length < 10) {
-      return '휴대폰 번호를 확인해 주세요.';
+    if (!kakaoEmail && !emailToken) {
+      return '이메일 인증을 완료해 주세요.';
     }
-    if (password.length < 8) {
+    if (checkPhone(phone)) {
+      return checkPhone(phone);
+    }
+    if (!phoneToken) {
+      return '휴대폰 인증을 완료해 주세요.';
+    }
+    // 카카오로 가입하면 비밀번호 없이 카카오로 로그인
+    if (!kakao && password.length < 8) {
       return '비밀번호는 8자 이상이어야 해요.';
     }
-    if (password !== password2) {
+    if (!kakao && password !== password2) {
       return '비밀번호가 서로 달라요.';
     }
     return null;
@@ -93,13 +118,17 @@ export default function SignUpScreen({
         name: name.trim(),
         email,
         phone,
-        password,
-        company:
-          isAdmin || (isHq && hqMode === 'create') ? company.trim() : undefined,
+        password: kakao ? undefined : password,
+        company: isHq && hqMode === 'create' ? company.trim() : undefined,
         companyCode:
           (isHq && hqMode === 'join') || (isAdmin && reportMode === 'hq')
             ? companyCode
             : undefined,
+        emailVerificationToken: kakaoEmail
+          ? undefined
+          : emailToken ?? undefined,
+        phoneVerificationToken: phoneToken ?? undefined,
+        signupToken: kakao?.signupToken,
       });
     } catch (e) {
       dialog.notice({
@@ -115,7 +144,12 @@ export default function SignUpScreen({
     <KeyboardAvoidingView style={styles.root} behavior="padding">
       <AppHeader
         title={
-          isHq ? '본사 관계자 가입' : isAdmin ? '현장 관리자 가입' : '일반 작업자 가입'
+          (kakao ? '카카오 · ' : '') +
+          (isHq
+            ? '본사 관계자 가입'
+            : isAdmin
+            ? '현장 관리자 가입'
+            : '일반 작업자 가입')
         }
         onBack={() => navigation.goBack()}
       />
@@ -184,14 +218,6 @@ export default function SignUpScreen({
                 maxLength={6}
               />
             ) : null}
-            <Field
-              label="회사·사무소명 (선택)"
-              value={company}
-              onChangeText={setCompany}
-              placeholder={
-                reportMode === 'hq' ? '비우면 본사 이름을 써요' : '예) 박철근 인력사무소'
-              }
-            />
           </>
         ) : null}
         {isHq ? (
@@ -228,7 +254,9 @@ export default function SignUpScreen({
               <Field
                 label="본사 코드"
                 value={companyCode}
-                onChangeText={t => setCompanyCode(t.replace(/\D/g, '').slice(0, 6))}
+                onChangeText={t =>
+                  setCompanyCode(t.replace(/\D/g, '').slice(0, 6))
+                }
                 placeholder="6자리 숫자"
                 keyboardType="number-pad"
                 maxLength={6}
@@ -236,35 +264,53 @@ export default function SignUpScreen({
             )}
           </>
         ) : null}
-        <Field
+        <VerifyField
           label="이메일"
           value={email}
           onChangeText={setEmail}
           placeholder="로그인할 때 사용해요"
           keyboardType="email-address"
           autoCapitalize="none"
+          check={v =>
+            EMAIL_RE.test(v.trim()) ? null : '이메일 형식이 올바르지 않아요.'
+          }
+          send={sendEmailCode}
+          verify={verifyEmailCode}
+          token={emailToken}
+          onToken={setEmailToken}
+          locked={kakaoEmail}
+          lockedHint="카카오에서 인증된 이메일이에요"
         />
-        <Field
+        <VerifyField
           label="휴대폰 번호"
           value={phone}
           onChangeText={v => setPhone(formatPhone(v))}
           placeholder="010-0000-0000"
           keyboardType="phone-pad"
+          check={checkPhone}
+          send={sendPhoneCode}
+          verify={verifyPhoneCode}
+          token={phoneToken}
+          onToken={setPhoneToken}
         />
-        <Field
-          label="비밀번호"
-          value={password}
-          onChangeText={setPassword}
-          placeholder="8자 이상"
-          secureTextEntry
-        />
-        <Field
-          label="비밀번호 확인"
-          value={password2}
-          onChangeText={setPassword2}
-          placeholder="한 번 더 입력"
-          secureTextEntry
-        />
+        {kakao ? null : (
+          <>
+            <Field
+              label="비밀번호"
+              value={password}
+              onChangeText={setPassword}
+              placeholder="8자 이상"
+              secureTextEntry
+            />
+            <Field
+              label="비밀번호 확인"
+              value={password2}
+              onChangeText={setPassword2}
+              placeholder="한 번 더 입력"
+              secureTextEntry
+            />
+          </>
+        )}
       </ScrollView>
       <BottomBar>
         <Button title="가입하기" onPress={onSubmit} loading={loading} />

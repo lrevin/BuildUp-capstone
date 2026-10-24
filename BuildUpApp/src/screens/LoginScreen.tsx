@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   KeyboardAvoidingView,
+  Linking,
   Pressable,
   ScrollView,
   StatusBar,
@@ -11,6 +12,7 @@ import {
 import { Text } from '../components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { config, errorMessage } from '../api/client';
+import { kakaoStartUrl } from '../api/buildup';
 import { useAuth } from '../auth';
 import { useDialog } from '../components/Dialog';
 import { Button, Field, Logo } from '../components/ui';
@@ -48,6 +50,17 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
       });
       setLoading(false);
     }
+  };
+
+  // 카카오: 휴대폰 브라우저로 카카오 로그인 → 끝나면 앱으로 돌아온다(App.tsx KakaoBridge)
+  const onKakao = () => {
+    if (config.useDummy) {
+      dialog.toast('카카오 로그인은 서버에 연결했을 때 쓸 수 있어요', 'error');
+      return;
+    }
+    Linking.openURL(kakaoStartUrl()).catch(() =>
+      dialog.toast('브라우저를 열지 못했어요', 'error'),
+    );
   };
 
   const fill = (e: string) => {
@@ -90,6 +103,16 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
             onSubmitEditing={onLogin}
           />
           <Button title="로그인" onPress={onLogin} loading={loading} />
+          <Pressable
+            onPress={onKakao}
+            style={({ pressed }) => [
+              styles.kakao,
+              pressed && styles.kakaoPressed,
+            ]}
+            accessibilityLabel="카카오로 시작하기"
+          >
+            <Text style={styles.kakaoText}>카카오로 시작하기</Text>
+          </Pressable>
 
           <View style={styles.signupRow}>
             <Text style={styles.signupText}>계정이 없으신가요?</Text>
@@ -158,6 +181,17 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
 }
 
 const styles = StyleSheet.create({
+  // 카카오 로그인 버튼(카카오 디자인 가이드: 노란 바탕 #FEE500, 글자 85% 검정)
+  kakao: {
+    marginTop: 10,
+    height: 52,
+    borderRadius: radius.md,
+    backgroundColor: '#FEE500',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kakaoPressed: { opacity: 0.85 },
+  kakaoText: { fontSize: 16, fontWeight: '700', color: 'rgba(0,0,0,0.85)' },
   root: { flex: 1, backgroundColor: colors.white },
   scroll: { flexGrow: 1, paddingHorizontal: 20 },
   title: {

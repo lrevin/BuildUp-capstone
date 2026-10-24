@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Pressable, StatusBar, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StatusBar, StyleSheet, View } from 'react-native';
 import { Text } from './src/components/Text';
 import {
   NavigationContainer,
@@ -35,6 +35,7 @@ import SiteSettingsScreen from './src/screens/SiteSettingsScreen';
 import ProgressModeScreen from './src/screens/ProgressModeScreen';
 import SitesScreen from './src/screens/SitesScreen';
 import { colors } from './src/theme';
+import { errorMessage } from './src/api/client';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -178,6 +179,51 @@ function PushBridge() {
   return null;
 }
 
+// 카카오 로그인: 휴대폰 브라우저에서 로그인을 마치면 buildupapp://oauth/kakao?ticket=... 로 앱이 열린다
+// 티켓은 한 번만 쓸 수 있어서, 처리한 티켓은 기억해 둔다(로그아웃 뒤 같은 주소를 다시 처리하지 않게)
+const handledTickets = new Set<string>();
+
+function KakaoBridge() {
+  const { user, kakao } = useAuth();
+  const dialog = useDialog();
+  const loggedIn = !!user;
+
+  useEffect(() => {
+    if (loggedIn) {
+      return;
+    }
+    const onUrl = async (url: string | null | undefined) => {
+      const m = url?.match(
+        /^buildupapp:\/\/oauth\/kakao\?(?:.*&)?ticket=([0-9a-f]+)/,
+      );
+      if (!m || handledTickets.has(m[1])) {
+        return;
+      }
+      handledTickets.add(m[1]);
+      try {
+        const signup = await kakao(m[1]);
+        // 처음 온 사람: 역할을 고르고 휴대폰 인증 등 나머지 정보를 받아 가입
+        if (signup && navigationRef.isReady()) {
+          navigationRef.navigate('RoleSelect', { kakao: signup });
+        }
+      } catch (e) {
+        dialog.notice({
+          icon: 'danger',
+          title: '카카오로 로그인하지 못했어요',
+          message: errorMessage(e),
+        });
+      }
+    };
+    Linking.getInitialURL()
+      .then(onUrl)
+      .catch(() => {});
+    const sub = Linking.addEventListener('url', e => onUrl(e.url));
+    return () => sub.remove();
+  }, [loggedIn, kakao, dialog]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -186,6 +232,7 @@ export default function App() {
           <NavigationContainer ref={navigationRef}>
             <RootNavigator />
             <PushBridge />
+            <KakaoBridge />
           </NavigationContainer>
         </AuthProvider>
       </DialogProvider>

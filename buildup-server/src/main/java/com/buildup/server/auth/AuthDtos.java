@@ -24,11 +24,50 @@ public final class AuthDtos {
             @Size(max = 120, message = "이메일이 너무 길어요.") String email,
             @NotBlank(message = "휴대폰 번호를 입력해 주세요.") @Size(max = 20, message = "휴대폰 번호를 확인해 주세요.")
             String phone,
-            @NotBlank(message = "비밀번호를 입력해 주세요.") @Size(min = 8, max = 64, message = "비밀번호는 8자 이상이어야 해요.")
-            String password,
+            // 카카오 가입(signupToken)이면 비워도 된다
+            @Size(min = 8, max = 64, message = "비밀번호는 8자 이상이어야 해요.") String password,
             @Size(max = 80, message = "회사·본사 이름은 80자까지 쓸 수 있어요.") String company,
             // 본사 관계자: companyCode가 있으면 그 본사에 합류, 없으면 company 이름으로 새 본사 등록
-            String companyCode) {}
+            String companyCode,
+            // 이메일 인증 결과(POST /api/auth/email/verify). 카카오가 인증한 이메일이면 생략 가능
+            String emailVerificationToken,
+            // 휴대폰 인증 결과(POST /api/auth/phone/verify) — 항상 필요
+            String phoneVerificationToken,
+            // 카카오 첫 로그인 때 받은 가입 토큰(POST /api/auth/oauth/kakao)
+            String signupToken) {}
+
+    // ---- 가입 인증(이메일·휴대폰) ----
+
+    public record EmailRequest(
+            @NotBlank(message = "이메일을 입력해 주세요.") @Email(message = "이메일 형식이 올바르지 않아요.")
+            @Size(max = 120, message = "이메일이 너무 길어요.") String email) {}
+
+    public record EmailVerifyRequest(
+            @NotBlank(message = "이메일을 입력해 주세요.") String email,
+            @NotBlank(message = "인증 코드를 입력해 주세요.") String code) {}
+
+    public record PhoneRequest(@NotBlank(message = "휴대폰 번호를 입력해 주세요.") String phone) {}
+
+    public record PhoneVerifyRequest(
+            @NotBlank(message = "휴대폰 번호를 입력해 주세요.") String phone,
+            @NotBlank(message = "인증 코드를 입력해 주세요.") String code) {}
+
+    /** 코드를 보냄: 유효 시간과 다시 받을 수 있을 때까지(초) */
+    public record CodeSentResponse(long expiresInSeconds, long resendAfterSeconds) {}
+
+    public record EmailVerifiedResponse(String emailVerificationToken, long expiresInSeconds) {}
+
+    public record PhoneVerifiedResponse(String phoneVerificationToken, long expiresInSeconds) {}
+
+    // ---- 카카오 로그인 ----
+
+    /** 웹: { code, redirectUri } / 앱(카카오 SDK): { accessToken } */
+    public record KakaoLoginRequest(String code, String redirectUri, String accessToken) {}
+
+    /** 카카오로 처음 온 사람: 가입 화면에서 signupToken을 같이 보낸다(email은 카카오가 인증한 경우에만) */
+    public record SignupRequiredResponse(
+            boolean signupRequired, String signupToken, String provider, String email, String name,
+            long expiresInSeconds) {}
 
     /**
      * 로그인·가입·토큰 갱신 응답(앱·웹 공통).
