@@ -40,7 +40,11 @@ try {
   Copy-Item (Join-Path $app 'android\app\build\outputs\apk\release\app-release.apk') $out -Force
   Write-Output "완성: $out  (서버: $ServerUrl)"
 } finally {
-  # 개발용으로 되돌리기
-  [IO.File]::WriteAllText($flag, $flagOriginal, $utf8)
-  [IO.File]::WriteAllText($client, $clientOriginal, $utf8)
+  # 개발용으로 되돌리기(Metro가 파일을 잠깐 잡고 있으면 실패하니 몇 번 다시 시도)
+  foreach ($pair in @(@($flag, $flagOriginal), @($client, $clientOriginal))) {
+    for ($i = 0; $i -lt 10; $i++) {
+      try { [IO.File]::WriteAllText($pair[0], $pair[1], $utf8); break }
+      catch { Start-Sleep -Milliseconds 500 }
+    }
+  }
 }
