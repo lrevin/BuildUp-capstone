@@ -37,7 +37,9 @@ import {
   api,
   applyConfig,
   config,
+  DEFAULT_BASE_URL,
   fakeDelay,
+  OLD_SERVER_URLS,
   requireUserId,
   session,
   setTokenRefreshedHandler,
@@ -98,6 +100,11 @@ export async function saveServerConfig(next: ServerConfig) {
 export async function restoreSession(): Promise<User | null> {
   const server = await serverConfigStore.load();
   if (server) {
+    // 예전 배포 주소(IP, http)로 저장된 설정은 지금 주소로 바꾼다(서버가 https 도메인으로 옮겨 IP로는 404)
+    if (OLD_SERVER_URLS.includes(server.baseUrl)) {
+      server.baseUrl = DEFAULT_BASE_URL;
+      await serverConfigStore.save(server);
+    }
     applyConfig(server);
   }
   if (config.useDummy) {

@@ -6,6 +6,9 @@ import { DEMO_BUILD } from '../demoBuild';
 // 실제 폰은 같은 와이파이에서 PC의 IP(예: http://192.168.0.10:8080/api)를 넣는다.
 export const DEFAULT_BASE_URL = 'http://10.0.2.2:8080/api';
 
+// 예전에 쓰던 배포 서버 주소: 폰에 이 주소가 저장돼 있으면 지금 주소(DEFAULT_BASE_URL)로 바꾼다
+export const OLD_SERVER_URLS = ['http://3.39.51.236/api'];
+
 // 연결 설정(앱의 '서버 설정' 화면에서 바꾸고 폰에 저장된다)
 //   useDummy: true면 서버 없이 폰 안의 더미 데이터(src/data/dummy.ts)로 동작
 export const config = {
