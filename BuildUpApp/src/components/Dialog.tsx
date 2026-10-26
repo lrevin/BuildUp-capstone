@@ -48,6 +48,8 @@ export interface DialogOptions<T> {
   title: string;
   message?: string;
   actions: DialogAction<T>[];
+  /** 아이콘·글자를 가운데로, 제목을 크게(탈퇴처럼 꼭 읽어야 하는 확인) */
+  emphasis?: boolean;
 }
 
 export interface SheetOption<T> {
@@ -75,6 +77,7 @@ interface DialogApi {
     cancelText?: string;
     danger?: boolean;
     icon?: IconKind;
+    emphasis?: boolean;
   }): Promise<boolean>;
   notice(opts: {
     title: string;
@@ -147,11 +150,13 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
         cancelText = '취소',
         danger,
         icon,
+        emphasis,
       }) =>
         (await show({
           icon,
           title,
           message,
+          emphasis,
           actions: [
             { label: cancelText, value: false, variant: 'secondary' },
             {
@@ -243,6 +248,7 @@ function DialogView({
               <View
                 style={[
                   styles.iconWrap,
+                  opts.emphasis && styles.iconCenter,
                   { backgroundColor: ICONS[opts.icon].bg },
                 ]}
               >
@@ -253,9 +259,19 @@ function DialogView({
                 })}
               </View>
             ) : null}
-            <Text style={styles.title}>{opts.title}</Text>
+            <Text
+              style={[styles.title, opts.emphasis && styles.titleBig]}
+              numberOfLines={opts.emphasis ? 1 : undefined}
+              adjustsFontSizeToFit={opts.emphasis}
+            >
+              {opts.title}
+            </Text>
             {opts.message ? (
-              <Text style={styles.message}>{opts.message}</Text>
+              <Text
+                style={[styles.message, opts.emphasis && styles.textCenter]}
+              >
+                {opts.message}
+              </Text>
             ) : null}
             <View style={styles.actions}>
               {opts.actions.map(a => (
@@ -447,7 +463,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
   },
+  iconCenter: { alignSelf: 'center' },
   title: { fontSize: 19, fontWeight: '700', color: colors.text },
+  titleBig: { fontSize: 30, letterSpacing: -0.5, textAlign: 'center' },
+  textCenter: { textAlign: 'center' },
   message: {
     fontSize: 15,
     color: colors.textSub,

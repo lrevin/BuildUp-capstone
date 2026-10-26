@@ -44,13 +44,10 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
       icon: 'warning',
       title: '정말 탈퇴할까요?',
       message:
-        '바로 로그아웃되고,\n7일 뒤 계정 정보가 영구 삭제돼요.' +
-        (user.role === 'admin'
-          ? '\n내가 만든 현장도 보고·자재 요청과 함께 삭제돼요.'
-          : '') +
-        '\n\n삭제된 뒤에는 되돌릴 수 없어요.',
+        '탈퇴 7일 후 계정 정보 및\n모든 현장 정보가 삭제됩니다.\n7일 후에는 되돌릴 수 없습니다.',
       confirmText: '탈퇴하기',
       danger: true,
+      emphasis: true,
     });
     if (!ok) {
       return;

@@ -85,7 +85,7 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
           />
           <Button title="로그인" onPress={onLogin} loading={loading} />
           <OrDivider />
-          <KakaoButton label="카카오로 로그인" />
+          <KakaoButton label="카카오 로그인" />
         </View>
 
         <View style={styles.signupRow}>
