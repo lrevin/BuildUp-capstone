@@ -6,7 +6,7 @@ export type AuthStackParamList = {
   Login: undefined;
   RoleSelect: { kakao?: KakaoSignup } | undefined; // 카카오로 처음 온 사람은 kakao를 들고 온다
   SignUp: { role: Role; kakao?: KakaoSignup };
-  Server: undefined; // 로그인 전·후 모두에서 연다
+  Server: undefined; // 개발용: 로그인 화면 로고를 길게 눌러 연다
 };
 
 // (로그인 후) 현장 관리자 전환·보고 체계 변경은 AppStack에

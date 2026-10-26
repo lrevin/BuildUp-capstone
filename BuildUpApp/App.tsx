@@ -92,7 +92,6 @@ function RootNavigator() {
           <Stack.Screen name="Members" component={MembersScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="PasswordReset" component={PasswordResetScreen} />
-          <Stack.Screen name="Server" component={ServerScreen} />
         </>
       ) : user ? (
         <>
@@ -116,14 +115,13 @@ function RootNavigator() {
             name="MaterialRequest"
             component={MaterialRequestScreen}
           />
-          <Stack.Screen name="Server" component={ServerScreen} />
         </>
       ) : (
         <>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
-          {/* 로그인 후 서버 설정에서 연결을 바꿔 로그아웃되면 이 화면에 남지 않고 로그인 화면으로 */}
+          {/* 개발용 서버 설정: 로그인 화면 로고를 길게 누르면 열린다(사용자에게는 보이지 않음) */}
           <Stack.Screen
             name="Server"
             component={ServerScreen}

@@ -173,21 +173,6 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
           onPress={onLogout}
           style={styles.logout}
         />
-        <Pressable
-          style={styles.connection}
-          onPress={() => navigation.navigate('Server')}
-        >
-          <Text style={styles.key}>연결</Text>
-          <Text style={styles.connectionValue} numberOfLines={1}>
-            {config.useDummy
-              ? '데모 모드'
-              : config.baseUrl
-                  .replace(/^https?:\/\//, '')
-                  .replace(/\/api$/, '')}
-          </Text>
-          <ChevronRight size={18} color={colors.textMuted} />
-        </Pressable>
-
         {config.useDummy ? (
           <Pressable style={styles.reset} onPress={onReset} hitSlop={8}>
             <Text style={styles.resetText}>데모 데이터 초기화</Text>
@@ -227,13 +212,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginTop: 12,
     ...shadow,
-  },
-  connectionValue: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 15,
-    color: colors.text,
-    fontWeight: '500',
   },
   managerRow: { marginTop: 20 },
   managerText: { fontSize: 15, fontWeight: '700', color: colors.text },
