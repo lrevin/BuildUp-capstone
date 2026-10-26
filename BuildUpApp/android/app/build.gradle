@@ -107,9 +107,10 @@ android {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
-            // http:// 서버(같은 와이파이의 PC, 도메인 없는 배포 서버) 접속 허용. https만 쓸 거면 false로.
+            // http:// 서버(같은 와이파이의 PC, 도메인 없는 배포 서버) 접속 허용.
+            // https 서버용은 -PallowHttp=false 로 끈다(build-server-apk.ps1이 주소를 보고 정함)
             // (이름이 usesCleartextTraffic이면 React Native 빌드 도구가 릴리스에서 false로 덮어써서 따로 이름을 씀)
-            manifestPlaceholders = [allowHttp: "true"]
+            manifestPlaceholders = [allowHttp: (project.findProperty('allowHttp') ?: 'true').toString()]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

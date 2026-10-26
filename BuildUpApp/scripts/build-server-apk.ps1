@@ -33,7 +33,9 @@ try {
   [IO.File]::WriteAllText($client, $patched, $utf8)
 
   Push-Location (Join-Path $app 'android')
-  cmd /c "gradlew.bat assembleRelease --console=plain 2>&1"
+  # https 서버면 암호화 안 된(http) 연결은 막는다
+  $allowHttp = if ($ServerUrl.StartsWith('https://')) { 'false' } else { 'true' }
+  cmd /c "gradlew.bat assembleRelease -PallowHttp=$allowHttp --console=plain 2>&1"
   if ($LASTEXITCODE -ne 0) { throw '빌드 실패' }
   Pop-Location
   $out = Join-Path (Split-Path -Parent $app) 'BuildUp.apk'
