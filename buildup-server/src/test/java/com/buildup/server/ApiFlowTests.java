@@ -25,7 +25,11 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.buildup.server.auth.AccountDeletion;
 import com.buildup.server.auth.KakaoClient;
+import com.buildup.server.user.UserRepository;
+import java.time.Duration;
+import java.time.Instant;
 import com.buildup.server.push.PushService;
 import com.buildup.server.auth.VerificationSender;
 import java.util.regex.Matcher;
@@ -57,6 +61,12 @@ class ApiFlowTests {
 
     @Autowired
     VerificationSender sender;
+
+    @Autowired
+    AccountDeletion deletion;
+
+    @Autowired
+    UserRepository users;
 
     /** 카카오 서버 대신(테스트에서는 카카오에 접속하지 않는다) */
     @MockitoBean
@@ -663,6 +673,114 @@ class ApiFlowTests {
         assertThat(auto.body().get("overallProgress")).isEqualTo(35.0);
         assertThat((List<?>) auto.body().get("processes")).hasSize(2);
         assertThat(send("DELETE", "/api/sites/" + id, admin, null).status()).isEqualTo(200);
+    }
+
+    // ---------- 회원 탈퇴, 비밀번호 재설정 ----------
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 회원_탈퇴하면_바로_로그아웃되고_7일_뒤_계정_정보가_지워진다() throws Exception {
+        // 현장 관리자: 내 현장을 만들고, 남의 현장(데모 현장)에도 참여해 보고를 남긴다
+        Res su = send("POST", "/api/auth/signup", null, verified(Map.of("name", "탈퇴시험", "email", "bye@test.kr",
+                "phone", "010-7777-1111", "password", "password123", "role", "admin")));
+        assertThat(su.status()).as(String.valueOf(su.body())).isEqualTo(200);
+        String t = su.body().get("accessToken").toString();
+        String refresh = su.body().get("refreshToken").toString();
+        Long id = Long.valueOf(((Map<String, Object>) su.body().get("user")).get("id").toString());
+        String mySite = send("POST", "/api/sites", t, Map.of("name", "탈퇴 시험 현장", "address", "원주시",
+                "workType", "욕실 리모델링")).body().get("id").toString();
+        String demoSite = send("POST", "/api/sites/join", t, Map.of("code", "000000")).body().get("id").toString();
+        String reportId = submitReport(t, demoSite);
+
+        // 기록이 하나도 없는 작업자
+        Res su2 = send("POST", "/api/auth/signup", null, verified(Map.of("name", "탈퇴시험2", "email", "bye2@test.kr",
+                "phone", "010-7777-2222", "password", "password123", "role", "worker")));
+        String t2 = su2.body().get("accessToken").toString();
+        Long id2 = Long.valueOf(((Map<String, Object>) su2.body().get("user")).get("id").toString());
+
+        // 탈퇴 신청: 바로 로그아웃, 7일 뒤 삭제 예정
+        Res bye = send("DELETE", "/api/auth/me", t, null);
+        assertThat(bye.status()).isEqualTo(200);
+        assertThat(Instant.parse(bye.body().get("deleteAt").toString()))
+                .isAfter(Instant.now().plus(Duration.ofDays(6)));
+        assertThat(send("DELETE", "/api/auth/me", t2, null).status()).isEqualTo(200);
+        assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", refresh)).status()).isEqualTo(401);
+        assertThat(send("GET", "/api/auth/me", t, null).status()).isEqualTo(401);
+        Res login = send("POST", "/api/auth/login", null, Map.of("email", "bye@test.kr", "password", "password123"));
+        assertThat(login.status()).isEqualTo(403);
+        assertThat(login.body().get("message").toString()).contains("탈퇴");
+        Res again = send("POST", "/api/auth/email/send", null, Map.of("email", "bye@test.kr"));
+        assertThat(again.status()).isEqualTo(409);
+        assertThat(again.body().get("message").toString()).contains("7일 뒤");
+
+        // 7일이 지나기 전에는 그대로
+        deletion.purgeWithdrawnBefore(Instant.now().minus(AccountDeletion.GRACE));
+        assertThat(users.findById(id)).isPresent();
+
+        // 7일 뒤: 내 현장은 삭제, 남의 현장에 남긴 보고는 '탈퇴한 사용자'로 남고 계정 정보는 지워진다
+        deletion.purgeWithdrawnBefore(Instant.now().plusSeconds(1));
+        assertThat(send("GET", "/api/sites/" + mySite, admin, null).status()).isIn(403, 404);
+        var left = users.findById(id).orElseThrow();
+        assertThat(left.getName()).isEqualTo(AccountDeletion.WITHDRAWN_NAME);
+        assertThat(left.getEmail()).doesNotContain("bye@test.kr");
+        assertThat(left.getPhone()).isNull();
+        assertThat(left.getPasswordHash()).isNull();
+        Res list = send("GET", "/api/sites/" + demoSite + "/reports", admin, null);
+        List<Object> reports = list.list() != null ? list.list() : (List<Object>) list.body().get("items");
+        Map<String, Object> mine = reports.stream().map(o -> (Map<String, Object>) o)
+                .filter(r -> reportId.equals(r.get("id").toString())).findFirst().orElseThrow();
+        assertThat(mine.get("author")).isEqualTo(AccountDeletion.WITHDRAWN_NAME);
+        send("DELETE", "/api/reports/" + reportId, admin, null);
+        // 기록이 없던 계정은 행까지 삭제
+        assertThat(users.findById(id2)).isEmpty();
+        // 같은 이메일로 다시 가입할 수 있다
+        assertThat(send("POST", "/api/auth/email/send", null, Map.of("email", "bye@test.kr")).status()).isEqualTo(200);
+    }
+
+    @Test
+    void 발표용_예시_계정은_탈퇴할_수_없다() throws Exception {
+        Res r = send("DELETE", "/api/auth/me", worker, null);
+        assertThat(r.status()).isEqualTo(400);
+        assertThat(send("GET", "/api/auth/me", worker, null).status()).isEqualTo(200);
+    }
+
+    @Test
+    void 비밀번호를_메일_코드로_다시_정한다() throws Exception {
+        Res su = send("POST", "/api/auth/signup", null, verified(Map.of("name", "비번시험", "email", "pw@test.kr",
+                "phone", "010-8888-1111", "password", "password123", "role", "worker")));
+        assertThat(su.status()).isEqualTo(200);
+        String refresh = su.body().get("refreshToken").toString();
+
+        // 가입하지 않은 이메일도 같은 응답(가입 여부를 알 수 없게)
+        assertThat(send("POST", "/api/auth/password/send", null, Map.of("email", "nobody@test.kr")).status())
+                .isEqualTo(200);
+        assertThat(send("POST", "/api/auth/password/send", null, Map.of("email", "pw@test.kr")).status())
+                .isEqualTo(200);
+        String code = sender.loggedCode("pw@test.kr");
+        String wrong = code.equals("000000") ? "111111" : "000000";
+        assertThat(send("POST", "/api/auth/password/verify", null, Map.of("email", "pw@test.kr", "code", wrong))
+                .status()).isEqualTo(400);
+        Res ok = send("POST", "/api/auth/password/verify", null, Map.of("email", "pw@test.kr", "code", code));
+        assertThat(ok.status()).isEqualTo(200);
+        String resetToken = ok.body().get("resetToken").toString();
+        // 다른 이메일 것으로는 못 쓴다
+        assertThat(send("POST", "/api/auth/password/reset", null,
+                Map.of("email", "admin@buildup.kr", "resetToken", resetToken, "password", "newpass123")).status())
+                .isEqualTo(400);
+        assertThat(send("POST", "/api/auth/password/reset", null,
+                Map.of("email", "pw@test.kr", "resetToken", resetToken, "password", "short")).status()).isEqualTo(400);
+        assertThat(send("POST", "/api/auth/password/reset", null,
+                Map.of("email", "pw@test.kr", "resetToken", resetToken, "password", "newpass123")).status())
+                .isEqualTo(200);
+        // 인증은 한 번만, 바꾸면 다른 기기 로그인은 끊긴다
+        assertThat(send("POST", "/api/auth/password/reset", null,
+                Map.of("email", "pw@test.kr", "resetToken", resetToken, "password", "other12345")).status())
+                .isEqualTo(400);
+        assertThat(send("POST", "/api/auth/refresh", null, Map.of("refreshToken", refresh)).status()).isEqualTo(401);
+        assertThat(send("POST", "/api/auth/login", null, Map.of("email", "pw@test.kr", "password", "password123"))
+                .status()).isEqualTo(401);
+        assertThat(send("POST", "/api/auth/login", null, Map.of("email", "pw@test.kr", "password", "newpass123"))
+                .status()).isEqualTo(200);
     }
 
     // ---------- 도움 함수 ----------

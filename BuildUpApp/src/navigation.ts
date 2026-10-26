@@ -15,6 +15,7 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   Sites: undefined;
   Profile: undefined;
+  PasswordReset: undefined; // 내 정보 → 비밀번호 찾기
   AddSite: undefined; // 공사 현장 추가: 작업자 / 관리자 고르기
   CreateSite: undefined;
   SiteCode: {

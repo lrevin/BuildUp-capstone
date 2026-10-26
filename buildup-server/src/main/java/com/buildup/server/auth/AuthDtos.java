@@ -46,6 +46,19 @@ public final class AuthDtos {
             @NotBlank(message = "이메일을 입력해 주세요.") String email,
             @NotBlank(message = "인증 코드를 입력해 주세요.") String code) {}
 
+    /** 비밀번호 재설정 코드 확인 결과(30분 안에 새 비밀번호를 정한다) */
+    public record PasswordCodeVerifiedResponse(String resetToken, long expiresInSeconds) {}
+
+    /** 비밀번호 재설정: 코드 확인으로 받은 resetToken + 새 비밀번호 */
+    public record PasswordResetRequest(
+            @NotBlank(message = "이메일을 입력해 주세요.") String email,
+            @NotBlank(message = "이메일 인증을 먼저 해 주세요.") String resetToken,
+            @NotBlank(message = "새 비밀번호를 입력해 주세요.")
+            @Size(min = 8, max = 64, message = "비밀번호는 8자 이상이어야 해요.") String password) {}
+
+    /** 탈퇴 신청 결과: 이 시각에 계정 정보가 영구 삭제된다 */
+    public record WithdrawResponse(boolean ok, String deleteAt) {}
+
     public record PhoneRequest(@NotBlank(message = "휴대폰 번호를 입력해 주세요.") String phone) {}
 
     public record PhoneVerifyRequest(

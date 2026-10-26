@@ -60,18 +60,25 @@ public class AuthService {
         }
         limiter.clear(key);
         // 비밀번호가 맞을 때만 알려 준다(다른 사람이 계정 상태를 알아낼 수 없게)
+        if (user.isWithdrawn()) {
+            throw withdrawn();
+        }
         if (user.isDisabled()) {
             throw ApiException.forbidden("사용이 중지된 계정이에요. 관리자에게 문의해 주세요.");
         }
         return issue(user);
     }
 
+    private static ApiException withdrawn() {
+        return ApiException.forbidden("탈퇴한 계정이에요. 탈퇴 7일 뒤 계정 정보가 모두 삭제돼요.");
+    }
+
     @Transactional
     public AuthResponse signUp(SignUpRequest req) {
         String email = normalize(req.email());
-        if (users.existsByEmail(email)) {
-            throw ApiException.conflict("이미 가입된 이메일입니다.");
-        }
+        users.findByEmail(email).ifPresent(u -> {
+            throw u.isWithdrawn() ? SignupVerification.withdrawnEmail() : ApiException.conflict("이미 가입된 이메일입니다.");
+        });
         SignupVerification.Checked checked = verification.check(req, email);
         try {
             return createUser(req, email, checked);
@@ -155,6 +162,9 @@ public class AuthService {
         var linked = socials.findByProviderAndProviderUserId(SocialAccount.KAKAO, k.id());
         if (linked.isPresent()) {
             User user = linked.get().getUser();
+            if (user.isWithdrawn()) {
+                throw withdrawn();
+            }
             if (user.isDisabled()) {
                 throw ApiException.forbidden("사용이 중지된 계정이에요. 관리자에게 문의해 주세요.");
             }
@@ -235,6 +245,7 @@ public class AuthService {
     @Transactional(readOnly = true)
     public UserDto me(Long userId) {
         return users.findById(userId)
+                .filter(u -> !u.isWithdrawn())
                 .map(this::dto)
                 .orElseThrow(() -> ApiException.unauthorized("로그인이 필요합니다."));
     }
@@ -249,9 +260,26 @@ public class AuthService {
     @Transactional
     public AuthResponse refresh(String refreshToken) {
         RefreshToken rt = refreshTokens.find(refreshToken);
+        if (rt.getUser().isWithdrawn()) {
+            throw ApiException.unauthorized("로그인이 만료되었어요. 다시 로그인해 주세요.");
+        }
         JwtTokens.Issued access = jwt.issue(rt.getUser());
         return new AuthResponse(dto(rt.getUser()), access.value(), refreshToken, "Bearer",
                 access.expiresAt().toString(), rt.getExpiresAt().toString());
+    }
+
+    /**
+     * 비밀번호 재설정(메일로 받은 코드 확인 후). 카카오로만 가입한 계정도 비밀번호를 만들 수 있다.
+     * 다른 기기의 로그인은 모두 끊는다(리프레시 토큰 폐기).
+     */
+    @Transactional
+    public void resetPassword(AuthDtos.PasswordResetRequest req) {
+        verification.takePasswordReset(req.email(), req.resetToken());
+        User u = users.findByEmail(normalize(req.email()))
+                .filter(x -> !x.isWithdrawn() && !x.isDisabled())
+                .orElseThrow(() -> ApiException.badRequest("인증 시간이 지났어요. 이메일 인증을 다시 해 주세요."));
+        u.setPasswordHash(passwordEncoder.encode(req.password()));
+        refreshTokens.revokeAll(u.getId());
     }
 
     /** 로그인·가입 성공 → 접근 토큰 + 리프레시 토큰 발급 */

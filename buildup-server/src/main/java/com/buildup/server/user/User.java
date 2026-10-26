@@ -69,6 +69,10 @@ public class User {
     @Column(nullable = false, columnDefinition = "datetime(6)")
     private Instant createdAt = Instant.now();
 
+    /** 회원 탈퇴를 신청한 시각(7일 뒤 계정 정보 영구 삭제, AccountDeletion) */
+    @Column(columnDefinition = "datetime(6)")
+    private Instant deletedAt;
+
     /** 본사 소속(한 사람은 활성 소속 하나) */
     @Getter(AccessLevel.NONE)
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -102,6 +106,11 @@ public class User {
         dbRole = isDisabled() ? DISABLED + base : base;
     }
 
+    /** 탈퇴를 신청한 계정(로그인·가입 불가, 7일 뒤 삭제) */
+    public boolean isWithdrawn() {
+        return deletedAt != null;
+    }
+
     public boolean isDisabled() {
         return dbRole.startsWith(DISABLED);
     }
@@ -130,6 +139,11 @@ public class User {
         memberships.clear();
         memberships.add(new CompanyMembership(
                 company, this, manager ? CompanyMembership.HQ_MANAGER : CompanyMembership.HQ_MEMBER));
+    }
+
+    /** 본사 소속을 모두 지운다(탈퇴 정리) */
+    public void leaveCompanies() {
+        memberships.clear();
     }
 
     /** 본사 관리자인가 */

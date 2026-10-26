@@ -24,6 +24,7 @@ import ManagerSetupScreen from './src/screens/ManagerSetupScreen';
 import MaterialRequestScreen from './src/screens/MaterialRequestScreen';
 import MaterialsScreen from './src/screens/MaterialsScreen';
 import MembersScreen from './src/screens/MembersScreen';
+import PasswordResetScreen from './src/screens/PasswordResetScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ProgressScreen from './src/screens/ProgressScreen';
 import ReportDetailScreen from './src/screens/ReportDetailScreen';
@@ -90,12 +91,14 @@ function RootNavigator() {
           <Stack.Screen name="Materials" component={MaterialsScreen} />
           <Stack.Screen name="Members" component={MembersScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="PasswordReset" component={PasswordResetScreen} />
           <Stack.Screen name="Server" component={ServerScreen} />
         </>
       ) : user ? (
         <>
           <Stack.Screen name="Sites" component={SitesScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="PasswordReset" component={PasswordResetScreen} />
           <Stack.Screen name="AddSite" component={AddSiteScreen} />
           <Stack.Screen name="CreateSite" component={CreateSiteScreen} />
           <Stack.Screen name="SiteCode" component={SiteCodeScreen} />

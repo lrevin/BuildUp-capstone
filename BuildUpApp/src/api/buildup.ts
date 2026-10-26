@@ -209,6 +209,58 @@ export async function verifyPhoneCode(phone: string, code: string) {
   return res.data.phoneVerificationToken;
 }
 
+// ---- 비밀번호 재설정(메일 코드 확인 → 새 비밀번호) ----
+
+export async function sendPasswordCode(email: string): Promise<CodeSent> {
+  if (config.useDummy) {
+    await fakeDelay();
+    return DEMO_SENT;
+  }
+  const res = await api.post<CodeSent>('/auth/password/send', {
+    email: email.trim(),
+  });
+  return res.data;
+}
+
+/** 맞으면 새 비밀번호를 정할 때 보낼 토큰 */
+export async function verifyPasswordCode(email: string, code: string) {
+  if (config.useDummy) {
+    await fakeDelay();
+    return demoCode(code, 'email');
+  }
+  const res = await api.post<{ resetToken: string }>('/auth/password/verify', {
+    email: email.trim(),
+    code: code.trim(),
+  });
+  return res.data.resetToken;
+}
+
+/** 새 비밀번호로 바꾼다(다른 기기 로그인은 끊긴다) */
+export async function resetPassword(
+  email: string,
+  resetToken: string,
+  password: string,
+) {
+  if (config.useDummy) {
+    await fakeDelay();
+    return;
+  }
+  await api.post('/auth/password/reset', {
+    email: email.trim(),
+    resetToken,
+    password,
+  });
+}
+
+/** 회원 탈퇴: 바로 로그아웃되고 7일 뒤 계정 정보가 영구 삭제된다 → 삭제 예정 시각 */
+export async function withdraw(): Promise<string> {
+  if (config.useDummy) {
+    throw new ApiError('데모 모드에서는 탈퇴할 수 없어요.');
+  }
+  const res = await api.delete<{ ok: boolean; deleteAt: string }>('/auth/me');
+  return res.data.deleteAt;
+}
+
 // ---- 카카오 로그인(휴대폰 브라우저 → 서버 → 앱 buildupapp://oauth/kakao?ticket=) ----
 
 /**

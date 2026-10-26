@@ -36,6 +36,7 @@ public class AuthController {
     private final KakaoClient kakao;
     private final KakaoAppLogin kakaoApp;
     private final AttemptLimiter limiter;
+    private final AccountDeletion accountDeletion;
 
     @Operation(summary = "로그인 → { user, accessToken, refreshToken, tokenType, accessTokenExpiresAt, refreshTokenExpiresAt }")
     @PostMapping("/login")
@@ -59,6 +60,26 @@ public class AuthController {
     @PostMapping("/email/verify")
     public AuthDtos.EmailVerifiedResponse verifyEmailCode(@Valid @RequestBody AuthDtos.EmailVerifyRequest req) {
         return verification.verifyEmail(req.email(), req.code());
+    }
+
+    @Operation(summary = "비밀번호 재설정 코드 메일 보내기: { email } → { expiresInSeconds, resendAfterSeconds }")
+    @PostMapping("/password/send")
+    public AuthDtos.CodeSentResponse sendPasswordReset(@Valid @RequestBody AuthDtos.EmailRequest req) {
+        return verification.sendPasswordReset(req.email());
+    }
+
+    @Operation(summary = "비밀번호 재설정 코드 확인: { email, code } → { resetToken, expiresInSeconds }")
+    @PostMapping("/password/verify")
+    public AuthDtos.PasswordCodeVerifiedResponse verifyPasswordReset(
+            @Valid @RequestBody AuthDtos.EmailVerifyRequest req) {
+        return verification.verifyPasswordReset(req.email(), req.code());
+    }
+
+    @Operation(summary = "비밀번호 재설정: { email, resetToken, password } → { ok } (다른 기기 로그인은 끊김)")
+    @PostMapping("/password/reset")
+    public Map<String, Boolean> resetPassword(@Valid @RequestBody AuthDtos.PasswordResetRequest req) {
+        auth.resetPassword(req);
+        return Map.of("ok", true);
     }
 
     @Operation(summary = "휴대폰 인증 문자 보내기: { phone } → { expiresInSeconds, resendAfterSeconds }")
@@ -185,6 +206,12 @@ public class AuthController {
     public UserDto setManager(@RequestBody com.buildup.server.auth.AuthDtos.ManagerRequest req) {
         return auth.setManager(CurrentUser.id(), req.companyCode(), req.company(),
                 Boolean.TRUE.equals(req.linkSites()));
+    }
+
+    @Operation(summary = "회원 탈퇴: 바로 로그아웃되고 7일 뒤 계정 정보 영구 삭제 → { ok, deleteAt }")
+    @org.springframework.web.bind.annotation.DeleteMapping("/me")
+    public AuthDtos.WithdrawResponse withdraw() {
+        return new AuthDtos.WithdrawResponse(true, accountDeletion.withdraw(CurrentUser.id()).toString());
     }
 
     @Operation(summary = "접근 토큰 다시 받기: { refreshToken } → 로그인과 같은 응답")

@@ -63,6 +63,15 @@ public class VerificationSender {
     }
 
     public void email(String to, String code) {
+        sendMail(to, code, "[Build Up] 이메일 인증 코드", "Build Up 가입 인증 코드는 ");
+    }
+
+    /** 비밀번호 재설정 코드 메일 */
+    public void passwordEmail(String to, String code) {
+        sendMail(to, code, "[Build Up] 비밀번호 재설정 코드", "Build Up 비밀번호 재설정 코드는 ");
+    }
+
+    private void sendMail(String to, String code, String subject, String lead) {
         JavaMailSender sender = mail.getIfAvailable();
         if (sender == null || mailFrom.isBlank()) {
             devLog("이메일", to, code);
@@ -71,8 +80,8 @@ public class VerificationSender {
         SimpleMailMessage m = new SimpleMailMessage();
         m.setFrom(mailFrom);
         m.setTo(to);
-        m.setSubject("[Build Up] 이메일 인증 코드");
-        m.setText("Build Up 가입 인증 코드는 " + code + " 입니다.\n5분 안에 입력해 주세요.\n\n"
+        m.setSubject(subject);
+        m.setText(lead + code + " 입니다.\n5분 안에 입력해 주세요.\n\n"
                 + "본인이 요청하지 않았다면 이 메일은 무시해 주세요.");
         try {
             sender.send(m);

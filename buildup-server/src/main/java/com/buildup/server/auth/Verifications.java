@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class Verifications {
 
-    public enum Kind { EMAIL, PHONE, KAKAO }
+    public enum Kind { EMAIL, PHONE, KAKAO, RESET }
 
     static final Duration CODE_TTL = Duration.ofMinutes(5);
     static final Duration RESEND_AFTER = Duration.ofSeconds(60);
@@ -147,6 +147,7 @@ public class Verifications {
             case EMAIL -> "ev_";
             case PHONE -> "pv_";
             case KAKAO -> "st_";
+            case RESET -> "rv_";
         };
     }
 

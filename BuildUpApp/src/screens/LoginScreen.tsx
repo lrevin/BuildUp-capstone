@@ -1,8 +1,6 @@
-import React, { useCallback, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Linking,
   Pressable,
   ScrollView,
   StatusBar,
@@ -11,10 +9,10 @@ import {
 } from 'react-native';
 import { Text } from '../components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { config, errorMessage } from '../api/client';
-import { kakaoBegin } from '../api/buildup';
+import { errorMessage } from '../api/client';
 import { useAuth } from '../auth';
 import { useDialog } from '../components/Dialog';
+import { KakaoButton, OrDivider } from '../components/KakaoButton';
 import { Button, Field } from '../components/ui';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
@@ -25,13 +23,6 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  // 서버 설정에서 연결을 바꾸고 돌아오면 아래 '데모 모드 / 서버 주소' 표시를 다시 그린다
-  const [, setConfigShown] = useState(0);
-  useFocusEffect(
-    useCallback(() => {
-      setConfigShown(n => n + 1);
-    }, []),
-  );
   const dialog = useDialog();
 
   const onLogin = async () => {
@@ -52,24 +43,6 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
     }
   };
 
-  // 카카오: 휴대폰 브라우저로 카카오 로그인 → 끝나면 앱으로 돌아온다(App.tsx KakaoBridge)
-  const onKakao = async () => {
-    if (config.useDummy) {
-      dialog.toast('카카오 로그인은 서버에 연결했을 때 쓸 수 있어요', 'error');
-      return;
-    }
-    let url: string;
-    try {
-      url = await kakaoBegin();
-    } catch (e) {
-      dialog.toast(errorMessage(e).replace(/\.$/, ''), 'error');
-      return;
-    }
-    Linking.openURL(url).catch(() =>
-      dialog.toast('브라우저를 열지 못했어요', 'error'),
-    );
-  };
-
   return (
     <KeyboardAvoidingView style={styles.root} behavior="padding">
       <StatusBar barStyle="light-content" />
@@ -80,10 +53,16 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* 웹 대시보드와 같은 글자 로고 */}
-        <Text style={styles.brand} accessibilityLabel="Build Up">
-          Build<Text style={styles.brandUp}>Up</Text>
-        </Text>
+        {/* 웹 대시보드와 같은 글자 로고. 개발할 때만: 길게 누르면 서버 설정 */}
+        <Pressable
+          onLongPress={() => navigation.navigate('Server')}
+          delayLongPress={1500}
+          accessible={false}
+        >
+          <Text style={styles.brand} accessibilityLabel="Build Up">
+            Build<Text style={styles.brandUp}>Up</Text>
+          </Text>
+        </Pressable>
         <Text style={styles.subtitle}>공사 현장 보고 · 관리</Text>
 
         <View style={styles.card}>
@@ -105,16 +84,8 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
             onSubmitEditing={onLogin}
           />
           <Button title="로그인" onPress={onLogin} loading={loading} />
-          <Pressable
-            onPress={onKakao}
-            style={({ pressed }) => [
-              styles.kakao,
-              pressed && styles.kakaoPressed,
-            ]}
-            accessibilityLabel="카카오로 시작하기"
-          >
-            <Text style={styles.kakaoText}>카카오로 시작하기</Text>
-          </Pressable>
+          <OrDivider />
+          <KakaoButton label="카카오로 로그인" />
         </View>
 
         <View style={styles.signupRow}>
@@ -126,39 +97,12 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
             <Text style={styles.signupLink}>회원가입</Text>
           </Pressable>
         </View>
-
-        <Pressable
-          style={styles.server}
-          hitSlop={8}
-          onPress={() => navigation.navigate('Server')}
-        >
-          <Text style={styles.serverText}>
-            {config.useDummy
-              ? '데모 모드 (서버 없이)'
-              : `서버 ${config.baseUrl
-                  .replace(/^https?:\/\//, '')
-                  .replace(/\/api$/, '')}`}
-            {'  ·  '}
-            <Text style={styles.serverLink}>변경</Text>
-          </Text>
-        </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  // 카카오 로그인 버튼(카카오 디자인 가이드: 노란 바탕 #FEE500, 글자 85% 검정)
-  kakao: {
-    marginTop: 10,
-    height: 52,
-    borderRadius: radius.md,
-    backgroundColor: '#FEE500',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  kakaoPressed: { opacity: 0.85 },
-  kakaoText: { fontSize: 16, fontWeight: '700', color: 'rgba(0,0,0,0.85)' },
   root: { flex: 1, backgroundColor: colors.ink950 },
   scroll: { flexGrow: 1, paddingHorizontal: 20 },
   brand: {
@@ -194,12 +138,4 @@ const styles = StyleSheet.create({
     color: colors.white,
     textDecorationLine: 'underline',
   },
-  server: {
-    alignSelf: 'center',
-    marginTop: 'auto',
-    paddingTop: 32,
-    padding: 4,
-  },
-  serverText: { fontSize: 12, color: colors.ink400 },
-  serverLink: { fontWeight: '700', color: colors.white },
 });

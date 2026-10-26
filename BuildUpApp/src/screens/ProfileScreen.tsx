@@ -2,8 +2,8 @@
 import React from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { Text } from '../components/Text';
-import { resetDemoData } from '../api/buildup';
-import { config } from '../api/client';
+import { resetDemoData, withdraw } from '../api/buildup';
+import { config, errorMessage } from '../api/client';
 import { ChevronRight } from 'lucide-react-native';
 import { useAuth, useUser } from '../auth';
 import { useDialog } from '../components/Dialog';
@@ -36,6 +36,45 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
     if (ok) {
       logout();
     }
+  };
+
+  // 회원 탈퇴: 한 번 더 확인 → 바로 로그아웃, 7일 뒤 계정 정보 영구 삭제
+  const onWithdraw = async () => {
+    const ok = await dialog.confirm({
+      icon: 'warning',
+      title: '정말 탈퇴할까요?',
+      message:
+        '바로 로그아웃되고,\n7일 뒤 계정 정보가 영구 삭제돼요.' +
+        (user.role === 'admin'
+          ? '\n내가 만든 현장도 보고·자재 요청과 함께 삭제돼요.'
+          : '') +
+        '\n\n삭제된 뒤에는 되돌릴 수 없어요.',
+      confirmText: '탈퇴하기',
+      danger: true,
+    });
+    if (!ok) {
+      return;
+    }
+    let deleteAt: string;
+    try {
+      deleteAt = await withdraw();
+    } catch (e) {
+      dialog.notice({
+        icon: 'danger',
+        title: '탈퇴하지 못했어요',
+        message: errorMessage(e),
+      });
+      return;
+    }
+    const d = new Date(deleteAt);
+    await dialog.notice({
+      icon: 'success',
+      title: '탈퇴했어요',
+      message: `${
+        d.getMonth() + 1
+      }월 ${d.getDate()}일에 계정 정보가 모두 삭제돼요.\n그동안 Build Up을 써 주셔서 고마워요.`,
+    });
+    logout();
   };
 
   // 발표·테스트용: 더미 데이터를 처음 상태로 되돌린다
@@ -123,6 +162,14 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
             <ChevronRight size={18} color={colors.textMuted} />
           </Pressable>
         ) : null}
+        <Pressable
+          style={styles.connection}
+          onPress={() => navigation.navigate('PasswordReset')}
+        >
+          <Text style={styles.managerText}>비밀번호 찾기</Text>
+          <Text style={styles.managerDesc}>이메일 인증 후 새로 정하기</Text>
+          <ChevronRight size={18} color={colors.textMuted} />
+        </Pressable>
         <Button
           title="로그아웃"
           variant="outline"
@@ -149,6 +196,9 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
             <Text style={styles.resetText}>데모 데이터 초기화</Text>
           </Pressable>
         ) : null}
+        <Pressable style={styles.reset} onPress={onWithdraw} hitSlop={8}>
+          <Text style={styles.withdrawText}>회원 탈퇴</Text>
+        </Pressable>
         <Text style={styles.version}>Build Up v1.0 · 경동대 캡스톤</Text>
       </ScrollView>
     </View>
@@ -188,7 +238,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '500',
   },
-  managerRow: { marginTop: 20, marginBottom: -8 },
+  managerRow: { marginTop: 20 },
   managerText: { fontSize: 15, fontWeight: '700', color: colors.text },
   managerDesc: {
     flex: 1,
@@ -200,6 +250,11 @@ const styles = StyleSheet.create({
   resetText: {
     fontSize: 13,
     color: colors.textMuted,
+    textDecorationLine: 'underline',
+  },
+  withdrawText: {
+    fontSize: 13,
+    color: colors.danger,
     textDecorationLine: 'underline',
   },
   version: {

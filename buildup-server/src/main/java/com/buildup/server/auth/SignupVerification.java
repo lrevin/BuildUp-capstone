@@ -61,9 +61,9 @@ public class SignupVerification {
         String email = normalizeEmail(rawEmail);
         // 가입 여부를 마구 알아보지 못하게 횟수부터 센다
         countSend(Kind.EMAIL, email);
-        if (users.existsByEmail(email)) {
-            throw ApiException.conflict("이미 가입된 이메일입니다.");
-        }
+        users.findByEmail(email).ifPresent(u -> {
+            throw u.isWithdrawn() ? withdrawnEmail() : ApiException.conflict("이미 가입된 이메일입니다.");
+        });
         sender.email(email, verifications.newCode(Kind.EMAIL, email));
         return sent();
     }
@@ -71,6 +71,43 @@ public class SignupVerification {
     public EmailVerifiedResponse verifyEmail(String rawEmail, String code) {
         String token = verify(Kind.EMAIL, normalizeEmail(rawEmail), code);
         return new EmailVerifiedResponse(token, verifications.ttlSeconds(Kind.EMAIL));
+    }
+
+    /** 탈퇴를 신청한 이메일: 7일 뒤 삭제되면 다시 가입할 수 있다 */
+    static ApiException withdrawnEmail() {
+        return ApiException.conflict("탈퇴 처리 중인 이메일이에요. 탈퇴 7일 뒤에 다시 가입할 수 있어요.");
+    }
+
+    /**
+     * 비밀번호 재설정 코드 보내기. 가입 여부를 알아내지 못하게 가입하지 않은 이메일이어도 같은 응답을 준다
+     * (코드는 가입한 계정에만 보낸다).
+     */
+    public CodeSentResponse sendPasswordReset(String rawEmail) {
+        String email = normalizeEmail(rawEmail);
+        countSend(Kind.RESET, email);
+        String code = verifications.newCode(Kind.RESET, email);
+        users.findByEmail(email)
+                .filter(u -> !u.isWithdrawn() && !u.isDisabled())
+                .ifPresent(u -> sender.passwordEmail(email, code));
+        return sent();
+    }
+
+    /** 비밀번호 재설정 코드 확인 → resetToken */
+    public AuthDtos.PasswordCodeVerifiedResponse verifyPasswordReset(String rawEmail, String code) {
+        String token = verify(Kind.RESET, normalizeEmail(rawEmail), code);
+        return new AuthDtos.PasswordCodeVerifiedResponse(token, verifications.ttlSeconds(Kind.RESET));
+    }
+
+    /** 새 비밀번호를 정할 때: 이 이메일로 받은 resetToken인가(한 번만 쓴다) */
+    public void takePasswordReset(String rawEmail, String resetToken) {
+        Granted g = verifications.take(resetToken, Kind.RESET);
+        if (g != null && !g.target().equals(normalizeEmail(rawEmail))) {
+            verifications.putBack(resetToken, g); // 다른 이메일 것이면 그대로 둔다
+            g = null;
+        }
+        if (g == null) {
+            throw ApiException.badRequest("인증 시간이 지났어요. 이메일 인증을 다시 해 주세요.");
+        }
     }
 
     public CodeSentResponse sendPhone(String rawPhone) {
@@ -152,7 +189,7 @@ public class SignupVerification {
     }
 
     private static String label(Kind kind) {
-        return kind == Kind.EMAIL ? "이메일" : "번호";
+        return kind == Kind.PHONE ? "번호" : "이메일";
     }
 
     private CodeSentResponse sent() {

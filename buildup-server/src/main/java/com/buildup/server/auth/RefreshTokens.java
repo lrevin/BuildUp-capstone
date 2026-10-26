@@ -65,6 +65,13 @@ public class RefreshTokens {
         });
     }
 
+    /** 이 사람의 리프레시 토큰을 모두 폐기(비밀번호를 바꾸면 다른 기기 로그아웃) */
+    @Transactional
+    public void revokeAll(Long userId) {
+        Instant now = Instant.now();
+        repo.findByUserIdAndRevokedAtIsNull(userId).forEach(t -> t.setRevokedAt(now));
+    }
+
     private static ApiException invalid() {
         return ApiException.unauthorized("로그인이 만료되었어요. 다시 로그인해 주세요.");
     }

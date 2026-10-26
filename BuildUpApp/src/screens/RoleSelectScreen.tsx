@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../components/Text';
 import { Building2, Check, HardHat, UserRound } from 'lucide-react-native';
+import { KakaoButton, OrDivider } from '../components/KakaoButton';
 import { AppHeader, BottomBar, Button } from '../components/ui';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
@@ -105,6 +106,13 @@ export default function RoleSelectScreen({
           disabled={!role}
           onPress={() => role && navigation.navigate('SignUp', { role, kakao })}
         />
+        {/* 웹 가입 화면과 같이: 카카오로 가입(카카오 로그인 후 역할을 고른다) */}
+        {kakao ? null : (
+          <>
+            <OrDivider dark />
+            <KakaoButton label="카카오로 가입하기" />
+          </>
+        )}
       </BottomBar>
     </View>
   );
