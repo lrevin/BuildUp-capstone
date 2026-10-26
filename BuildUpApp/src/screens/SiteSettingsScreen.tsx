@@ -1,4 +1,4 @@
-// 총관리자: 현장 정보 수정·현장 위치·본사 연결·현장 삭제
+// 관리자: 현장 정보 수정·현장 위치·본사 연결·현장 삭제
 import React, { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -135,7 +135,7 @@ export default function SiteSettingsScreen({
       const ok = await dialog.confirm({
         title: `'${companyName}'에 연결할까요?`,
         message:
-          '연결하면 이 현장의 진척 보고와 자재 요청을 본사에서 보고, 자재 요청을 본사에서도 승인·반려할 수 있어요.',
+          '연결하면 본사에서 이 현장의 보고를 보고, 자재 요청도 승인할 수 있어요.',
         confirmText: '연결',
       });
       if (ok) {
@@ -158,7 +158,7 @@ export default function SiteSettingsScreen({
   const onUnlink = async () => {
     const ok = await dialog.confirm({
       title: '본사 연결을 해제할까요?',
-      message: `'${hqName}'에서 이 현장의 보고와 자재 요청을 더 이상 볼 수 없어요. 자재 요청은 현장 총관리자가 승인·반려해요.`,
+      message: `'${hqName}'에서 이 현장을 더 이상 볼 수 없어요. 자재 요청은 내가 승인해요.`,
       confirmText: '해제',
       danger: true,
     });
@@ -308,7 +308,7 @@ export default function SiteSettingsScreen({
                     )}, ${place.longitude.toFixed(
                       5,
                     )}). 여기서 1km 넘게 떨어져 제출한 보고에는 확인 표시가 붙어요.`
-                  : '현장에 서서 저장하면, 현장이 아닌 곳에서 제출하거나 찍은 사진을 알려 줘요.'}
+                  : '현장에서 저장해 두면, 다른 곳에서 제출하거나 찍은 사진을 알려 줘요.'}
               </Text>
               <View style={styles.hqRow}>
                 <Button

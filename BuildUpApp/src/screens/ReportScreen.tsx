@@ -271,8 +271,7 @@ export default function ReportScreen({
   const discardDraft = async () => {
     const ok = await dialog.confirm({
       title: '새로 작성할까요?',
-      message:
-        '임시저장된 진행한 작업, 진행률, 사진, 첨부 파일, 메모가 지워져요.',
+      message: '작성 중이던 작업, 진행률, 사진, 첨부, 메모가 지워져요.',
       confirmText: '지우기',
       danger: true,
     });
@@ -353,7 +352,7 @@ export default function ReportScreen({
                 ]
               : []),
           ].join('\n') +
-          '\n\n엑셀·PDF·한글·워드·파워포인트 파일을 20MB까지 올릴 수 있어요.',
+          '\n\n엑셀·PDF·한글·워드·PPT 파일을 20MB까지 올릴 수 있어요.',
       });
     }
   };
@@ -652,7 +651,7 @@ export default function ReportScreen({
       siteId: site.id,
       siteName: site.name,
     });
-  // 총관리자: 내가 승인·반려할 요청 / 작업자: 내 요청 중 승인 대기
+  // 관리자: 내가 승인·반려할 요청 / 작업자: 내 요청 중 승인 대기
   const waitingMaterials = materials.filter(m => m.canApprove).length;
   const myOpenMaterials = materials.filter(
     m => m.authorId === user.id && m.status === 'requested',
@@ -789,8 +788,7 @@ export default function ReportScreen({
               onFull={workFull}
             />
             <Text style={styles.hint}>
-              하나 입력하고 완료(↵)를 누르면 위에 한 줄씩 들어가요. ✕를 누르면
-              지워져요.
+              입력하고 완료(↵)를 누르면 한 줄씩 추가돼요.
             </Text>
           </Card>
 
@@ -801,7 +799,7 @@ export default function ReportScreen({
             </Text>
             <Text style={styles.valueHint}>
               {isAuto
-                ? '고른 공정이 얼마나 진행됐는지 적으면, 현장 전체 진행률은 가중치로 자동 계산돼요'
+                ? '공정 진행률을 적으면 전체 진행률은 자동으로 계산돼요'
                 : '공사 전체가 얼마나 진행됐는지 직접 판단해서 적어 주세요'}
             </Text>
 
@@ -1113,7 +1111,7 @@ export default function ReportScreen({
                 isOwner: site.ownerId === user.id,
               }),
           },
-          // 참여 코드는 이 현장의 총관리자에게만 내려온다
+          // 참여 코드는 이 현장의 관리자에게만 내려온다
           ...(site.code
             ? [
                 {

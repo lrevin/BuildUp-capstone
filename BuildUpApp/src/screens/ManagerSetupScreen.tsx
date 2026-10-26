@@ -54,7 +54,7 @@ export default function ManagerSetupScreen({
         const name = await previewCompany(code);
         message = `'${name}'에 보고하는 현장 관리자가 돼요.`;
       } else {
-        message = '본사 없이 최고 책임자로 운영해요. 자재 요청도 내가 최종 승인해요.';
+        message = '본사 없이 직접 운영해요. 자재 요청도 내가 승인해요.';
       }
       if (ownedCount > 0 && linkSites) {
         message +=
@@ -108,8 +108,8 @@ export default function ManagerSetupScreen({
       >
         <Text style={styles.intro}>
           {isWorker
-            ? '현장 관리자가 되면 내 현장을 만들고 참여 코드를 발급할 수 있어요. 지금 참여 중인 현장에서는 그대로 작업자예요.'
-            : '본사에 보고하면 내가 만드는 현장이 본사에 연결돼요. 본사가 없으면 내가 최고 책임자예요.'}
+            ? '관리자가 되면 내 현장을 만들 수 있어요. 참여 중인 현장에서는 그대로 작업자예요.'
+            : '본사에 보고하면 내 현장이 본사에 연결돼요.'}
         </Text>
 
         <Option
@@ -131,7 +131,9 @@ export default function ManagerSetupScreen({
             value={code}
             onChangeText={t => setCode(t.replace(/\D/g, '').slice(0, 6))}
             placeholder={
-              user.hqName ? `지금: ${user.hqName}` : '본사 관계자에게 받은 6자리 숫자'
+              user.hqName
+                ? `지금: ${user.hqName}`
+                : '본사 관계자에게 받은 6자리 숫자'
             }
             keyboardType="number-pad"
             maxLength={6}
@@ -192,7 +194,9 @@ function Option({
       accessibilityState={{ selected: active }}
     >
       <View style={[styles.radio, active && styles.radioOn]}>
-        {active ? <Check size={13} color={colors.white} strokeWidth={3} /> : null}
+        {active ? (
+          <Check size={13} color={colors.white} strokeWidth={3} />
+        ) : null}
       </View>
       <View style={styles.flex}>
         <Text style={styles.optionTitle}>{title}</Text>

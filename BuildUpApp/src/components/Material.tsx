@@ -69,9 +69,9 @@ export function waitingText(m: MaterialRequest) {
     return '';
   }
   if (m.canCancel && !m.canApprove && m.hqLinked) {
-    return '본사 승인 대기'; // 총관리자 본인 요청
+    return '본사 승인 대기'; // 관리자 본인 요청
   }
-  return m.hqLinked ? '현장 총관리자·본사 승인 대기' : '현장 총관리자 승인 대기';
+  return m.hqLinked ? '현장 관리자·본사 승인 대기' : '현장 관리자 승인 대기';
 }
 
 const VERB: Record<MaterialStatus, string> = {
@@ -163,9 +163,7 @@ export function MaterialCard({
         ))}
       </View>
 
-      {open ? (
-        <Text style={styles.waiting}>{waitingText(m)}</Text>
-      ) : null}
+      {open ? <Text style={styles.waiting}>{waitingText(m)}</Text> : null}
 
       {due ? (
         <View style={styles.dueRow}>

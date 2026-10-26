@@ -165,7 +165,7 @@ export default function SitesScreen({ navigation }: ScreenProps<'Sites'>) {
                     icon={<KeyRound size={28} color={colors.textMuted} />}
                     title="아직 참여한 현장이 없어요"
                     desc={
-                      '아래 공사 현장 추가에서 작업자를 골라\n관리자에게 받은 6자리 코드를 입력해 보세요.'
+                      '아래 공사 현장 추가 → 작업자에서\n받은 6자리 코드를 입력해 보세요.'
                     }
                   />
                 ) : (

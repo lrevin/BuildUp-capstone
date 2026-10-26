@@ -60,8 +60,7 @@ export default function AddSiteScreen({ navigation }: ScreenProps<'AddSite'>) {
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>이 현장에서 어떤 역할인가요?</Text>
         <Text style={styles.subtitle}>
-          현장마다 다르게 고를 수 있어요. 내 현장은 관리자로, 다른 현장은
-          작업자로 참여해도 돼요.
+          현장마다 역할을 다르게 고를 수 있어요.
         </Text>
 
         {OPTIONS.map(({ value, title, Icon, desc, points }) => {
@@ -105,8 +104,8 @@ export default function AddSiteScreen({ navigation }: ScreenProps<'AddSite'>) {
 
         {position === 'manager' && user.role !== 'admin' ? (
           <Text style={styles.note}>
-            다음 화면에서 현장 관리자로 전환한 뒤 현장을 만들어요. 지금 참여 중인
-            현장에서는 그대로 작업자예요.
+            다음 화면에서 현장 관리자로 전환한 뒤 현장을 만들어요. 지금 참여
+            중인 현장에서는 그대로 작업자예요.
           </Text>
         ) : null}
       </ScrollView>

@@ -15,7 +15,12 @@ export const joinWorks = (tags: string[]) => tags.join(SEP);
 
 // 쉼표는 태그를 나누는 데 쓰므로 태그 안에서는 띄어쓰기로, 앞의 #은 뗀다
 const clean = (t: string) =>
-  t.replace(/,/g, ' ').replace(/^#+/, '').replace(/\s+/g, ' ').trim().slice(0, TAG_MAX);
+  t
+    .replace(/,/g, ' ')
+    .replace(/^#+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, TAG_MAX);
 
 /** 태그 목록에 하나 더 넣기. 비었거나 이미 있으면 그대로, 전체 글자 수를 넘으면 null */
 export function addWork(tags: string[], text: string): string[] | null {

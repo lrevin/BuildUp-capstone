@@ -157,15 +157,18 @@ export default function ProgressChart({
           >
             {md(xMin)}
           </SvgText>
-          <SvgText
-            x={width - PAD.right}
-            y={height - 8}
-            fontSize={10}
-            fill={colors.textMuted}
-            textAnchor="end"
-          >
-            {md(xMax)}
-          </SvgText>
+          {/* '오늘'이 오른쪽 끝에 있으면 끝 날짜는 빼서 글자가 겹치지 않게 */}
+          {showToday && width - PAD.right - todayX < 44 ? null : (
+            <SvgText
+              x={width - PAD.right}
+              y={height - 8}
+              fontSize={10}
+              fill={colors.textMuted}
+              textAnchor="end"
+            >
+              {md(xMax)}
+            </SvgText>
+          )}
 
           {/* 선 */}
           {lines.map((l, i) => {

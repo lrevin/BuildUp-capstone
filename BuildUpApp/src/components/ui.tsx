@@ -121,27 +121,50 @@ interface HeaderProps {
   subtitle?: string;
   onBack?: () => void;
   right?: React.ReactNode;
+  dark?: boolean; // 로그인·회원가입 화면(남색 바탕)
 }
 
-export function AppHeader({ title, subtitle, onBack, right }: HeaderProps) {
+export function AppHeader({
+  title,
+  subtitle,
+  onBack,
+  right,
+  dark,
+}: HeaderProps) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.header, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" />
+    <View
+      style={[
+        styles.header,
+        dark && styles.headerDark,
+        { paddingTop: insets.top },
+      ]}
+    >
+      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
       <View style={styles.headerRow}>
         {onBack ? (
           <IconButton onPress={onBack} label="뒤로">
-            <ChevronLeft size={26} color={colors.text} strokeWidth={2} />
+            <ChevronLeft
+              size={26}
+              color={dark ? colors.white : colors.text}
+              strokeWidth={2}
+            />
           </IconButton>
         ) : (
           <View style={styles.headerSpacer} />
         )}
         <View style={styles.flex}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
+          <Text
+            style={[styles.headerTitle, dark && styles.headerTitleDark]}
+            numberOfLines={1}
+          >
             {title}
           </Text>
           {subtitle ? (
-            <Text style={styles.headerSub} numberOfLines={1}>
+            <Text
+              style={[styles.headerSub, dark && styles.headerSubDark]}
+              numberOfLines={1}
+            >
               {subtitle}
             </Text>
           ) : null}
@@ -202,10 +225,22 @@ export function SectionTitle({
 
 // ---- 하단 고정 버튼 영역 ----
 
-export function BottomBar({ children }: { children: React.ReactNode }) {
+export function BottomBar({
+  children,
+  dark,
+}: {
+  children: React.ReactNode;
+  dark?: boolean;
+}) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.bottom, { paddingBottom: 12 + insets.bottom }]}>
+    <View
+      style={[
+        styles.bottom,
+        dark && styles.bottomDark,
+        { paddingBottom: 12 + insets.bottom },
+      ]}
+    >
       {children}
     </View>
   );
@@ -332,6 +367,12 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   headerSub: { fontSize: 12, color: colors.textSub, marginTop: 1 },
+  headerDark: {
+    backgroundColor: colors.ink950,
+    borderBottomColor: colors.ink800,
+  },
+  headerTitleDark: { color: colors.white },
+  headerSubDark: { color: colors.ink400 },
   iconBtn: {
     width: 40,
     height: 40,
@@ -364,6 +405,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.divider,
   },
+  bottomDark: { backgroundColor: colors.ink950, borderTopColor: colors.ink800 },
 
   avatar: {
     backgroundColor: colors.yellowSoft,
@@ -379,5 +421,4 @@ const styles = StyleSheet.create({
   },
   chipYellow: { backgroundColor: colors.yellowSoft },
   chipText: { fontSize: 11, fontWeight: '700', color: colors.textSub },
-
 });

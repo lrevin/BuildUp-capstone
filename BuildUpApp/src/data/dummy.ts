@@ -582,7 +582,7 @@ function seedMaterials(): MaterialRow[] {
     unit,
   });
   return [
-    // 승인 대기(작업자 요청 → 총관리자나 본사가 처리)
+    // 승인 대기(작업자 요청 → 관리자나 본사가 처리)
     row(
       'site-1',
       'electric',
@@ -605,7 +605,7 @@ function seedMaterials(): MaterialRow[] {
       [item('철근 HD13', 5, '톤'), item('결속선', 10, '롤')],
       [['requested', KIM, false, 0, 7]],
     ),
-    // 승인 대기(총관리자 본인 요청 → 본사가 처리)
+    // 승인 대기(관리자 본인 요청 → 본사가 처리)
     row(
       'site-1',
       'frame',
@@ -760,7 +760,7 @@ function findViewableSite(userId: string, siteId: string) {
 function findOwnedSite(userId: string, siteId: string, action: string) {
   const s = findMemberSite(userId, siteId);
   if (s.ownerId !== userId) {
-    throw new ApiError(`현장 총관리자만 ${action}할 수 있습니다.`);
+    throw new ApiError(`현장 관리자만 ${action}할 수 있습니다.`);
   }
   return s;
 }
@@ -807,7 +807,7 @@ function withPermissions(userId: string, row: ReportRow): Report {
     reviewer: null,
     reviewedAt: null,
   };
-  // 검토: 연결된 본사 또는 현장 총관리자, 본인 보고는 안 됨(서버 ReportService.canReview와 같음)
+  // 검토: 연결된 본사 또는 현장 관리자, 본인 보고는 안 됨(서버 ReportService.canReview와 같음)
   const viewer = users.find(u => u.id === userId);
   const canReview =
     !!site &&
@@ -939,8 +939,8 @@ function summary(s: SiteRow, userId: string): SiteSummary {
 }
 
 // ---- 자재 요청 권한(서버 MaterialDtos.Permissions와 같은 규칙) ----
-// 승인·반려: 현장 총관리자 또는 연결된 본사 관계자.
-// 단, 본사에 연결된 현장에서 총관리자가 직접 요청한 것은 본사가 처리한다.
+// 승인·반려: 현장 관리자 또는 연결된 본사 관계자.
+// 단, 본사에 연결된 현장에서 관리자가 직접 요청한 것은 본사가 처리한다.
 
 function withMaterialPermissions(
   userId: string,
@@ -1108,7 +1108,7 @@ export const dummyDb = {
     });
   },
 
-  // 총관리자: 현장 위치 저장(null이면 지우기)
+  // 관리자: 현장 위치 저장(null이면 지우기)
   setSiteLocation(
     userId: string,
     siteId: string,
@@ -1152,7 +1152,7 @@ export const dummyDb = {
     return dummyDb.getSite(userId, row.id);
   },
 
-  // 총관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치
+  // 관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치
   setProgressMode(
     userId: string,
     siteId: string,
@@ -1215,7 +1215,7 @@ export const dummyDb = {
   joinByCode(userId: string, code: string): SiteSummary {
     if (findUser(userId).role === 'hq') {
       throw new ApiError(
-        '본사 관계자는 현장 총관리자가 본사 코드로 연결한 현장을 볼 수 있어요.',
+        '본사 관계자는 현장 관리자가 본사 코드로 연결한 현장을 볼 수 있어요.',
       );
     }
     const s = sites.find(x => x.code === code);
@@ -1254,7 +1254,7 @@ export const dummyDb = {
       );
   },
 
-  // 총관리자: 참여자 내보내기
+  // 관리자: 참여자 내보내기
   removeMember(userId: string, siteId: string, memberId: string) {
     const s = findOwnedSite(userId, siteId, '참여자를 내보낼');
     if (memberId === userId) {
@@ -1268,7 +1268,7 @@ export const dummyDb = {
   leaveSite(userId: string, siteId: string) {
     const s = findMemberSite(userId, siteId);
     if (s.ownerId === userId) {
-      throw new ApiError('현장 총관리자는 현장을 나갈 수 없습니다.');
+      throw new ApiError('현장 관리자는 현장을 나갈 수 없습니다.');
     }
     s.memberIds = s.memberIds.filter(id => id !== userId);
     delete s.joinedAt[userId];
@@ -1409,7 +1409,7 @@ export const dummyDb = {
         longitude: null,
       })),
       location: input.location ?? null,
-      // 본사 없는 현장의 총관리자(최고 책임자) 보고는 바로 승인
+      // 본사 없는 현장의 관리자(최고 책임자) 보고는 바로 승인
       review: {
         status: s.ownerId === u.id && !s.companyId ? 'approved' : 'pending',
         comment: null,
@@ -1441,7 +1441,7 @@ export const dummyDb = {
     return withPermissions(userId, row);
   },
 
-  // 본사·현장 총관리자: 승인 / 보완 요청(코멘트 필수)
+  // 본사·현장 관리자: 승인 / 보완 요청(코멘트 필수)
   reviewReport(
     userId: string,
     reportId: string,
@@ -1466,7 +1466,7 @@ export const dummyDb = {
           ? '본인이 올린 보고는 검토할 수 없어요.'
           : row.review?.status !== 'pending'
           ? '이미 검토한 보고예요. 목록을 새로고침해 주세요.'
-          : '현장 총관리자나 본사 관계자만 검토할 수 있어요.',
+          : '현장 관리자나 본사 관계자만 검토할 수 있어요.',
       );
     }
     row.review = {
@@ -1545,7 +1545,7 @@ export const dummyDb = {
     if (input.neededBy && input.neededBy < toYMD(new Date())) {
       throw new ApiError('필요일은 오늘 이후로 정해 주세요.');
     }
-    // 본사에 연결되지 않은 현장의 총관리자가 직접 요청하면 바로 승인
+    // 본사에 연결되지 않은 현장의 관리자가 직접 요청하면 바로 승인
     // (연결된 현장이면 본사가 승인·반려한다)
     const selfApproved = s.ownerId === userId && !s.companyId;
     const timeline = [event('requested', u, false)];
@@ -1572,7 +1572,7 @@ export const dummyDb = {
     return withMaterialPermissions(userId, row);
   },
 
-  // 총관리자·본사: 승인 / 반려(사유)
+  // 관리자·본사: 승인 / 반려(사유)
   setMaterialStatus(
     userId: string,
     requestId: string,
@@ -1586,7 +1586,7 @@ export const dummyDb = {
     const hq = isHqOf(u, s);
     if (!owner && !hq) {
       throw new ApiError(
-        '현장 총관리자나 본사 관계자만 자재 요청을 처리할 수 있습니다.',
+        '현장 관리자나 본사 관계자만 자재 요청을 처리할 수 있습니다.',
       );
     }
     if (!withMaterialPermissions(userId, row).canApprove) {
@@ -1684,7 +1684,7 @@ export const dummyDb = {
       .map(m => withMaterialPermissions(userId, m));
   },
 
-  // 총관리자: 본사 코드 확인 → 현장 연결 / 해제
+  // 관리자: 본사 코드 확인 → 현장 연결 / 해제
   previewCompany(code: string): string {
     const c = companies.find(x => x.code === code.trim());
     if (!c) {

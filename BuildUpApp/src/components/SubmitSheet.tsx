@@ -67,8 +67,7 @@ export default function SubmitSheet(props: Props) {
           <View style={styles.heroTop}>
             {/* 진행한 작업 */}
             <Text style={styles.workText} numberOfLines={3}>
-              {splitWorks(props.work)
-                .join(' · ')}
+              {splitWorks(props.work).join(' · ')}
             </Text>
             <View style={[styles.diffChip, diff <= 0 && styles.diffZero]}>
               <Text style={[styles.diffText, diff <= 0 && styles.diffZeroText]}>
@@ -155,7 +154,13 @@ export default function SubmitSheet(props: Props) {
 }
 
 const styles = StyleSheet.create({
-  workText: { flex: 1, fontSize: 16, fontWeight: '700', color: colors.text, lineHeight: 23 },
+  workText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    lineHeight: 23,
+  },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
     backgroundColor: colors.white,

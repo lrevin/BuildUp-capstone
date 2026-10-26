@@ -149,9 +149,10 @@ export default function SignUpScreen({
             ? '본사 관계자 가입'
             : isAdmin
             ? '현장 관리자 가입'
-            : '일반 작업자 가입')
+            : '작업자 가입')
         }
         onBack={() => navigation.goBack()}
+        dark
       />
       <ScrollView
         contentContainerStyle={styles.body}
@@ -161,158 +162,163 @@ export default function SignUpScreen({
           <Text style={styles.roleBadgeText}>
             {isHq
               ? hqMode === 'create'
-                ? '가입하면 6자리 본사 코드가 발급돼요. 현장 총관리자에게 알려 주면 현장이 본사에 연결돼요.'
-                : '같은 본사의 다른 관계자에게 받은 본사 코드로 합류해요.'
+                ? '가입하면 본사 코드가 나와요. 현장 관리자가 이 코드로 현장을 연결해요.'
+                : '같은 본사 관계자에게 받은 본사 코드로 합류해요.'
               : isAdmin
               ? reportMode === 'hq'
-                ? '만드는 현장이 본사에 연결되어 보고와 자재 요청이 본사로 올라가요. 현장 참여 코드는 바로 발급돼요.'
-                : '본사 없이 내가 최고 책임자로 운영해요. 현장을 만들면 참여 코드가 바로 발급되고, 자재 요청도 내가 최종 승인해요.'
-              : '가입 후 관리자에게 받은 6자리 코드로 현장에 참여해요'}
+                ? '만드는 현장의 보고와 자재 요청이 본사로 올라가요.'
+                : '본사 없이 직접 운영해요. 자재 요청도 내가 승인해요.'
+              : '가입한 뒤 관리자에게 받은 참여 코드로 현장에 들어가요.'}
           </Text>
         </View>
 
-        <Field
-          label="이름"
-          value={name}
-          onChangeText={setName}
-          placeholder="홍길동"
-        />
-        {isAdmin ? (
-          <>
-            <Text style={styles.segLabel}>보고 체계</Text>
-            <View style={styles.segment}>
-              {(
-                [
-                  ['top', '제가 최고 책임자예요'],
-                  ['hq', '본사에 보고해요'],
-                ] as const
-              ).map(([key, label]) => (
-                <Pressable
-                  key={key}
-                  onPress={() => setReportMode(key)}
-                  style={[
-                    styles.segItem,
-                    reportMode === key && styles.segActive,
-                  ]}
-                >
-                  <Text
+        <View style={styles.card}>
+          <Field
+            label="이름"
+            value={name}
+            onChangeText={setName}
+            placeholder="홍길동"
+          />
+          {isAdmin ? (
+            <>
+              <Text style={styles.segLabel}>보고 체계</Text>
+              <View style={styles.segment}>
+                {(
+                  [
+                    ['top', '직접 운영'],
+                    ['hq', '본사에 보고'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <Pressable
+                    key={key}
+                    onPress={() => setReportMode(key)}
                     style={[
-                      styles.segText,
-                      reportMode === key && styles.segTextOn,
+                      styles.segItem,
+                      reportMode === key && styles.segActive,
                     ]}
                   >
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            {reportMode === 'hq' ? (
-              <Field
-                label="본사 코드"
-                value={companyCode}
-                onChangeText={t =>
-                  setCompanyCode(t.replace(/\D/g, '').slice(0, 6))
-                }
-                placeholder="본사 관계자에게 받은 6자리 숫자"
-                keyboardType="number-pad"
-                maxLength={6}
-              />
-            ) : null}
-          </>
-        ) : null}
-        {isHq ? (
-          <>
-            <Text style={styles.segLabel}>본사</Text>
-            <View style={styles.segment}>
-              {(
-                [
-                  ['create', '새 본사 등록'],
-                  ['join', '본사 코드로 합류'],
-                ] as const
-              ).map(([key, label]) => (
-                <Pressable
-                  key={key}
-                  onPress={() => setHqMode(key)}
-                  style={[styles.segItem, hqMode === key && styles.segActive]}
-                >
-                  <Text
-                    style={[styles.segText, hqMode === key && styles.segTextOn]}
+                    <Text
+                      style={[
+                        styles.segText,
+                        reportMode === key && styles.segTextOn,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {reportMode === 'hq' ? (
+                <Field
+                  label="본사 코드"
+                  value={companyCode}
+                  onChangeText={t =>
+                    setCompanyCode(t.replace(/\D/g, '').slice(0, 6))
+                  }
+                  placeholder="본사 관계자에게 받은 6자리 숫자"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                />
+              ) : null}
+            </>
+          ) : null}
+          {isHq ? (
+            <>
+              <Text style={styles.segLabel}>본사</Text>
+              <View style={styles.segment}>
+                {(
+                  [
+                    ['create', '새 본사 등록'],
+                    ['join', '본사 코드로 합류'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <Pressable
+                    key={key}
+                    onPress={() => setHqMode(key)}
+                    style={[styles.segItem, hqMode === key && styles.segActive]}
                   >
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            {hqMode === 'create' ? (
+                    <Text
+                      style={[
+                        styles.segText,
+                        hqMode === key && styles.segTextOn,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {hqMode === 'create' ? (
+                <Field
+                  label="본사명"
+                  value={company}
+                  onChangeText={setCompany}
+                  placeholder="예) 한빛건설 본사"
+                />
+              ) : (
+                <Field
+                  label="본사 코드"
+                  value={companyCode}
+                  onChangeText={t =>
+                    setCompanyCode(t.replace(/\D/g, '').slice(0, 6))
+                  }
+                  placeholder="6자리 숫자"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                />
+              )}
+            </>
+          ) : null}
+          <VerifyField
+            label="이메일"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="로그인할 때 사용해요"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            check={v =>
+              EMAIL_RE.test(v.trim()) ? null : '이메일 형식이 올바르지 않아요.'
+            }
+            send={sendEmailCode}
+            verify={verifyEmailCode}
+            token={emailToken}
+            onToken={setEmailToken}
+            locked={kakaoEmail}
+            lockedHint="카카오에서 인증된 이메일이에요"
+          />
+          <VerifyField
+            label="휴대폰 번호"
+            value={phone}
+            onChangeText={v => setPhone(formatPhone(v))}
+            placeholder="010-0000-0000"
+            keyboardType="phone-pad"
+            check={checkPhone}
+            send={sendPhoneCode}
+            verify={verifyPhoneCode}
+            token={phoneToken}
+            onToken={setPhoneToken}
+          />
+          {kakao ? null : (
+            <>
               <Field
-                label="본사명"
-                value={company}
-                onChangeText={setCompany}
-                placeholder="예) 한빛건설 본사"
+                label="비밀번호"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="8자 이상"
+                secureTextEntry
               />
-            ) : (
               <Field
-                label="본사 코드"
-                value={companyCode}
-                onChangeText={t =>
-                  setCompanyCode(t.replace(/\D/g, '').slice(0, 6))
-                }
-                placeholder="6자리 숫자"
-                keyboardType="number-pad"
-                maxLength={6}
+                label="비밀번호 확인"
+                value={password2}
+                onChangeText={setPassword2}
+                placeholder="한 번 더 입력"
+                secureTextEntry
               />
-            )}
-          </>
-        ) : null}
-        <VerifyField
-          label="이메일"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="로그인할 때 사용해요"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          check={v =>
-            EMAIL_RE.test(v.trim()) ? null : '이메일 형식이 올바르지 않아요.'
-          }
-          send={sendEmailCode}
-          verify={verifyEmailCode}
-          token={emailToken}
-          onToken={setEmailToken}
-          locked={kakaoEmail}
-          lockedHint="카카오에서 인증된 이메일이에요"
-        />
-        <VerifyField
-          label="휴대폰 번호"
-          value={phone}
-          onChangeText={v => setPhone(formatPhone(v))}
-          placeholder="010-0000-0000"
-          keyboardType="phone-pad"
-          check={checkPhone}
-          send={sendPhoneCode}
-          verify={verifyPhoneCode}
-          token={phoneToken}
-          onToken={setPhoneToken}
-        />
-        {kakao ? null : (
-          <>
-            <Field
-              label="비밀번호"
-              value={password}
-              onChangeText={setPassword}
-              placeholder="8자 이상"
-              secureTextEntry
-            />
-            <Field
-              label="비밀번호 확인"
-              value={password2}
-              onChangeText={setPassword2}
-              placeholder="한 번 더 입력"
-              secureTextEntry
-            />
-          </>
-        )}
+            </>
+          )}
+        </View>
       </ScrollView>
-      <BottomBar>
+      <BottomBar dark>
         <Button title="가입하기" onPress={onSubmit} loading={loading} />
       </BottomBar>
     </KeyboardAvoidingView>
@@ -320,15 +326,23 @@ export default function SignUpScreen({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+  root: { flex: 1, backgroundColor: colors.ink950 },
   body: { padding: 20 },
   roleBadge: {
     borderRadius: radius.md,
-    backgroundColor: colors.fill,
+    backgroundColor: colors.ink900,
+    borderWidth: 1,
+    borderColor: colors.ink800,
     padding: 14,
-    marginBottom: 24,
+    marginBottom: 16,
   },
-  roleBadgeText: { fontSize: 13, color: colors.textSub, lineHeight: 19 },
+  roleBadgeText: { fontSize: 14, color: colors.ink400, lineHeight: 20 },
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: 20,
+    paddingBottom: 4,
+  },
   segLabel: {
     fontSize: 13,
     fontWeight: '600',

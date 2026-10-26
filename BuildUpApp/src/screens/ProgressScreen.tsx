@@ -125,7 +125,7 @@ export default function ProgressScreen({
             <Card style={styles.gap}>
               <Text style={styles.cardTitle}>공정별 진행률</Text>
               <Text style={styles.procHint}>
-                전체 = Σ(공정 진행률 × 가중치) ÷ 100
+                가중치에 따라 전체 진행률에 반영돼요
               </Text>
               {site.processes.map(p => (
                 <View key={p.key} style={styles.procRow}>

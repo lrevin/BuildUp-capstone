@@ -144,10 +144,9 @@ export default function HqHomeScreen({ navigation }: ScreenProps<'HqHome'>) {
               </View>
               <Text style={styles.emptyTitle}>아직 연결된 현장이 없어요</Text>
               <Text style={styles.emptyDesc}>
-                현장 총관리자에게 본사 코드
-                {user.companyCode ? ` ${user.companyCode}` : ''}를 알려
-                주세요.{'\n'}현장 설정 → 본사 연결에서 입력하면 여기에
-                나타나요.
+                현장 관리자에게 본사 코드
+                {user.companyCode ? ` ${user.companyCode}` : ''}를 알려 주세요.
+                {'\n'}현장 설정 → 본사 연결에서 입력하면 여기에 나타나요.
               </Text>
             </View>
           )
@@ -200,7 +199,11 @@ export function SiteTile({
         { width: size, height: size },
         pressed && styles.pressed,
       ]}
-      accessibilityLabel={`${site.name} 보고 보기, 확인 안 한 보고 ${unread}건, 승인 대기 자재 ${waiting}건, 검토 대기 보고 ${site.pendingReviews ?? 0}건`}
+      accessibilityLabel={`${
+        site.name
+      } 보고 보기, 확인 안 한 보고 ${unread}건, 승인 대기 자재 ${waiting}건, 검토 대기 보고 ${
+        site.pendingReviews ?? 0
+      }건`}
     >
       <View style={styles.tileIcon}>
         <Building2 size={22} color={colors.text} strokeWidth={1.8} />
@@ -303,7 +306,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     lineHeight: 22,
   },
-  tileType: { fontSize: 12, color: colors.textMuted, marginTop: 3 },
+  tileType: { fontSize: 13, color: colors.textSub, marginTop: 3 },
   tileProgress: { fontSize: 13, fontWeight: '600', color: colors.textSub },
 
   empty: { alignItems: 'center', marginTop: 32, gap: 12 },

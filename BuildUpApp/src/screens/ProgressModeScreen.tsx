@@ -1,4 +1,4 @@
-// 총관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치 바꾸기
+// 관리자: 진행률 계산 방식(직접 입력 / 자동 계산)과 공정·가중치 바꾸기
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -76,7 +76,7 @@ export default function ProgressModeScreen({
         : '그대로 직접 입력 방식을 써요.';
     } else if (wasAuto) {
       message =
-        '바꾼 가중치로 전체 진행률을 다시 계산해요. 뺀 공정의 진행률은 계산에서 빠지고, 새 공정은 0%에서 시작해요.';
+        '바꾼 가중치로 전체 진행률을 다시 계산해요. 새 공정은 0%에서 시작해요.';
     } else {
       message = `모든 공정이 지금 진행률 ${pct(
         site.overallProgress,

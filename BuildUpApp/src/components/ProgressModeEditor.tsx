@@ -107,13 +107,13 @@ export default function ProgressModeEditor({
       <Option
         active={mode === 'manual'}
         title="직접 입력"
-        desc="보고하는 사람이 현장 전체 진행률을 직접 판단해서 적어요. 작은 공사에 알맞아요."
+        desc="전체 진행률을 보고할 때 직접 적어요. 작은 공사에 알맞아요."
         onPress={() => onModeChange('manual')}
       />
       <Option
         active={mode === 'auto'}
         title="자동 계산 (공정 가중치)"
-        desc="공정마다 가중치를 정해 두면, 공정별 진행률을 보고할 때 전체 진행률이 자동으로 계산돼요."
+        desc="공정별 진행률을 적으면 가중치로 전체 진행률을 계산해요."
         onPress={() => onModeChange('auto')}
       />
 
@@ -126,7 +126,7 @@ export default function ProgressModeEditor({
             </Text>
           </View>
           <Text style={styles.formula}>
-            전체 진행률 = Σ(공정 진행률 × 가중치) ÷ 100
+            공정마다 가중치를 정하면 전체 진행률이 자동으로 계산돼요
           </Text>
 
           {rows.map((r, i) => (

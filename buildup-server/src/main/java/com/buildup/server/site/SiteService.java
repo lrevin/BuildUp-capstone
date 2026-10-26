@@ -81,7 +81,7 @@ public class SiteService {
     private Site ownedSite(Long userId, Long siteId, String action) {
         Site site = memberSite(userId, siteId);
         if (!site.isOwner(userId)) {
-            throw ApiException.forbidden("현장 총관리자만 " + action + "할 수 있습니다.");
+            throw ApiException.forbidden("현장 관리자만 " + action + "할 수 있습니다.");
         }
         return site;
     }
@@ -387,7 +387,7 @@ public class SiteService {
     @Transactional
     public SiteSummaryDto join(Long userId, String code) {
         if (user(userId).getRole() == Role.HQ || user(userId).getRole() == Role.SYSTEM) {
-            throw ApiException.forbidden("본사 관계자는 현장 총관리자가 본사 코드로 연결한 현장을 볼 수 있어요.");
+            throw ApiException.forbidden("본사 관계자는 현장 관리자가 본사 코드로 연결한 현장을 볼 수 있어요.");
         }
         Site s = byCode("site-code:" + userId, sites.findByCode(code), "해당 코드의 현장을 찾을 수 없습니다.");
         if (!s.hasMember(userId)) {
@@ -428,7 +428,7 @@ public class SiteService {
     public void leave(Long userId, Long siteId) {
         Site s = memberSite(userId, siteId);
         if (s.isOwner(userId)) {
-            throw ApiException.badRequest("현장 총관리자는 현장을 나갈 수 없습니다.");
+            throw ApiException.badRequest("현장 관리자는 현장을 나갈 수 없습니다.");
         }
         s.getMembers().removeIf(m -> m.getUser().getId().equals(userId));
     }

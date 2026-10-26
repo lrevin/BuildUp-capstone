@@ -1,4 +1,4 @@
-// 현장 참여자 목록(총관리자: 내보내기 / 작업자: 현장 나가기)
+// 현장 참여자 목록(관리자: 내보내기 / 작업자: 현장 나가기)
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,

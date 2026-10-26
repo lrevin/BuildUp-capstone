@@ -24,7 +24,6 @@ import { colors, radius } from '../theme';
 import { MaterialItem } from '../types';
 import { addDays, parseYMD, toYMD } from '../utils/plan';
 
-
 // 자주 쓰는 자재(누르면 이름·단위가 채워진다)
 const PRESETS: { name: string; unit: string }[] = [
   { name: '철근', unit: '톤' },
@@ -86,7 +85,10 @@ export default function MaterialRequestScreen({
 
   const addRow = () => {
     if (rows.length >= MAX_MATERIAL_ITEMS) {
-      dialog.toast(`자재는 한 번에 ${MAX_MATERIAL_ITEMS}개까지 요청할 수 있어요`, 'error');
+      dialog.toast(
+        `자재는 한 번에 ${MAX_MATERIAL_ITEMS}개까지 요청할 수 있어요`,
+        'error',
+      );
       return;
     }
     setRows(prev => [...prev, emptyRow()]);
@@ -154,15 +156,15 @@ export default function MaterialRequestScreen({
       const next = await dialog.show({
         icon: 'success',
         title: '자재 요청을 보냈어요',
-        // 총관리자가 직접 요청하면 바로 승인 상태로 등록된다
+        // 관리자가 직접 요청하면 바로 승인 상태로 등록된다
         message:
           created.status === 'approved'
-            ? '현장 총관리자 요청이라 바로 승인됐어요.'
+            ? '현장 관리자 요청이라 바로 승인됐어요.'
             : !created.hqLinked
-            ? '현장 총관리자가 승인하면 목록에서 상태가 바뀌어요.'
+            ? '현장 관리자가 승인하면 목록에서 상태가 바뀌어요.'
             : isOwner
             ? '본사가 승인하면 목록에서 상태가 바뀌어요.'
-            : '현장 총관리자나 본사가 승인하면 목록에서 상태가 바뀌어요.',
+            : '현장 관리자나 본사가 승인하면 목록에서 상태가 바뀌어요.',
         actions: [
           { label: '요청 목록', value: 'list', variant: 'secondary' },
           { label: '확인', value: 'ok', variant: 'primary' },
@@ -286,7 +288,10 @@ export default function MaterialRequestScreen({
             ))}
 
             <Pressable
-              style={({ pressed }) => [styles.addRow, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.addRow,
+                pressed && styles.pressed,
+              ]}
               onPress={addRow}
             >
               <Plus size={18} color={colors.text} />
@@ -319,7 +324,11 @@ export default function MaterialRequestScreen({
               )}
               <Pressable
                 onPress={pickDate}
-                style={[styles.chip, styles.dateChip, customDate && styles.chipActive]}
+                style={[
+                  styles.chip,
+                  styles.dateChip,
+                  customDate && styles.chipActive,
+                ]}
               >
                 <CalendarDays
                   size={15}

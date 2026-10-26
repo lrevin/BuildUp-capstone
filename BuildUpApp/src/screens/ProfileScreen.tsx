@@ -43,8 +43,7 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
     const ok = await dialog.confirm({
       icon: 'warning',
       title: '데모 데이터를 초기화할까요?',
-      message:
-        '제출한 보고, 만든 현장, 가입한 계정이 모두 처음 상태로 돌아가요. 초기화 후 로그아웃돼요.',
+      message: '보고·현장·계정이 모두 처음 상태로 돌아가고 로그아웃돼요.',
       confirmText: '초기화',
       danger: true,
     });
@@ -101,8 +100,7 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
               Share.share({
                 message:
                   `[Build Up] ${user.company} 본사 코드: ${user.companyCode}
-` +
-                  '현장 설정 → 본사 연결에서 이 코드를 입력하면 현장 보고와 자재 요청이 본사로 올라와요.',
+` + '현장 관리자가 이 코드로 현장을 연결하면 보고와 자재 요청이 본사로 와요.',
               })
             }
             style={styles.logout}
@@ -118,7 +116,9 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
               {user.role === 'worker' ? '현장 관리자로 전환' : '보고 체계 변경'}
             </Text>
             <Text style={styles.managerDesc} numberOfLines={1}>
-              {user.role === 'worker' ? '내 현장 만들기' : user.hqName ?? '최고 책임자'}
+              {user.role === 'worker'
+                ? '내 현장 만들기'
+                : user.hqName ?? '최고 책임자'}
             </Text>
             <ChevronRight size={18} color={colors.textMuted} />
           </Pressable>

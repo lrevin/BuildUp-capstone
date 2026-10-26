@@ -89,9 +89,7 @@ export function WorkTagInput({
           submitBehavior="submit"
           returnKeyType="done"
           placeholder={
-            tags.length === 0
-              ? '예) 2층 욕실 방수 → 완료 누르고 다음 작업'
-              : '다른 작업 더 입력'
+            tags.length === 0 ? '예) 2층 욕실 방수' : '다른 작업 더 입력'
           }
           placeholderTextColor={colors.textMuted}
           maxLength={TAG_MAX}

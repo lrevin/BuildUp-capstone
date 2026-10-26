@@ -1,4 +1,4 @@
-// 총관리자: 참여 코드 확인·공유·재발급
+// 관리자: 참여 코드 확인·공유·재발급
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -30,7 +30,7 @@ export default function SiteCodeScreen({
       message:
         `[Build Up] '${siteName}' 현장에 초대합니다.\n\n` +
         `참여 코드: ${code}\n\n` +
-        'Build Up 앱 로그인 → "코드로 현장 참여"에서 위 코드를 입력하세요.',
+        'Build Up 앱 → 공사 현장 추가 → 작업자에서 위 코드를 입력하세요.',
     });
 
   const onRegenerate = () =>
@@ -38,7 +38,7 @@ export default function SiteCodeScreen({
       .confirm({
         title: '코드를 새로 발급할까요?',
         message:
-          '기존 코드로는 더 이상 참여할 수 없어요.\n이미 참여한 작업자는 그대로 유지돼요.',
+          '이전 코드로는 더 이상 참여할 수 없어요.\n이미 참여한 작업자는 그대로예요.',
         confirmText: '재발급',
       })
       .then(async ok => {

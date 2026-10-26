@@ -54,7 +54,7 @@ export default function ServerScreen({ navigation }: ScreenProps<'Server'>) {
       const ok = await dialog.confirm({
         title: '연결을 바꿀까요?',
         message:
-          '연결 대상이 바뀌면 로그아웃되고, 바뀐 곳의 계정으로 다시 로그인해야 해요.',
+          '연결을 바꾸면 로그아웃돼요. 바뀐 곳의 계정으로 다시 로그인해 주세요.',
         confirmText: '바꾸기',
       });
       if (!ok) {
@@ -92,7 +92,7 @@ export default function ServerScreen({ navigation }: ScreenProps<'Server'>) {
               />
             }
             title="서버 연결"
-            desc="팀 서버(Spring Boot)와 데이터를 주고받아요"
+            desc="보고·자재 데이터를 서버에 저장해요"
             onPress={() => setUseDummy(false)}
           />
           <ModeCard
@@ -122,7 +122,7 @@ export default function ServerScreen({ navigation }: ScreenProps<'Server'>) {
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
-              hint="배포 서버는 https://도메인/api · 에뮬레이터는 http://10.0.2.2:8080/api · 실제 폰으로 개발할 때는 같은 와이파이에서 PC의 IP(예: http://192.168.0.10:8080/api)"
+              hint="예) http://3.39.51.236/api"
             />
             <View style={styles.checkRow}>
               <Button

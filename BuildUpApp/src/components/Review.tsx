@@ -68,7 +68,7 @@ const QUICK_REASONS = [
 
 /**
  * 보고 상세의 검토 카드
- * - 검토할 수 있는 사람(본사·현장 총관리자): 승인 / 보완 요청(코멘트)
+ * - 검토할 수 있는 사람(본사·현장 관리자): 승인 / 보완 요청(코멘트)
  * - 작성자: 보완 요청을 받으면 메모를 고쳐 다시 검토 요청
  */
 export function ReviewCard({
@@ -149,7 +149,7 @@ export function ReviewCard({
         </Text>
       ) : null}
       {review.status === 'pending' && !report.canReview ? (
-        <Text style={styles.hint}>본사나 현장 총관리자가 확인하고 있어요.</Text>
+        <Text style={styles.hint}>본사나 현장 관리자가 확인하고 있어요.</Text>
       ) : null}
 
       <CheckList checks={report.checks} />

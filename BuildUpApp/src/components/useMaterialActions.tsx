@@ -78,7 +78,7 @@ export function useMaterialActions(
   };
 
   const handle = (m: MaterialRequest, action: MaterialAction) =>
-    ({ approve, reject, cancel })[action](m);
+    ({ approve, reject, cancel }[action](m));
 
   return { busyId, handle };
 }

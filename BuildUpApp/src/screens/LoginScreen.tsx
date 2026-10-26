@@ -15,7 +15,7 @@ import { config, errorMessage } from '../api/client';
 import { kakaoBegin } from '../api/buildup';
 import { useAuth } from '../auth';
 import { useDialog } from '../components/Dialog';
-import { Button, Field, Logo } from '../components/ui';
+import { Button, Field } from '../components/ui';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
 
@@ -70,28 +70,23 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
     );
   };
 
-  const fill = (e: string) => {
-    setEmail(e);
-    setPassword('1234');
-  };
-
   return (
     <KeyboardAvoidingView style={styles.root} behavior="padding">
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" />
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingTop: insets.top + 56, paddingBottom: insets.bottom + 24 },
+          { paddingTop: insets.top + 64, paddingBottom: insets.bottom + 24 },
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <Logo size={48} />
-        <Text style={styles.title}>
-          현장 진척도 보고,{'\n'}Build Up으로 간단하게
+        {/* 웹 대시보드와 같은 글자 로고 */}
+        <Text style={styles.brand} accessibilityLabel="Build Up">
+          Build<Text style={styles.brandUp}>Up</Text>
         </Text>
-        <Text style={styles.subtitle}>이메일로 로그인해 주세요</Text>
+        <Text style={styles.subtitle}>공사 현장 보고 · 관리</Text>
 
-        <View style={styles.form}>
+        <View style={styles.card}>
           <Field
             label="이메일"
             value={email}
@@ -120,50 +115,15 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
           >
             <Text style={styles.kakaoText}>카카오로 시작하기</Text>
           </Pressable>
-
-          <View style={styles.signupRow}>
-            <Text style={styles.signupText}>계정이 없으신가요?</Text>
-            <Pressable
-              hitSlop={8}
-              onPress={() => navigation.navigate('RoleSelect')}
-            >
-              <Text style={styles.signupLink}>회원가입</Text>
-            </Pressable>
-          </View>
         </View>
 
-        {/* 테스트 계정(데모 모드와 서버의 데모 데이터 모두 같은 계정) */}
-        <View style={styles.demo}>
-          <Text style={styles.demoTitle}>테스트 계정 · 비밀번호 1234</Text>
+        <View style={styles.signupRow}>
+          <Text style={styles.signupText}>계정이 없으신가요?</Text>
           <Pressable
-            style={styles.demoItem}
-            onPress={() => fill('hq@buildup.kr')}
+            hitSlop={8}
+            onPress={() => navigation.navigate('RoleSelect')}
           >
-            <Text style={styles.demoRole}>본사</Text>
-            <Text style={styles.demoEmail}>hq@buildup.kr</Text>
-          </Pressable>
-          <Pressable
-            style={styles.demoItem}
-            onPress={() => fill('admin@buildup.kr')}
-          >
-            <Text style={styles.demoRole}>관리자</Text>
-            <Text style={styles.demoEmail}>admin@buildup.kr</Text>
-            <Text style={styles.demoNote}>본사 보고</Text>
-          </Pressable>
-          <Pressable
-            style={styles.demoItem}
-            onPress={() => fill('park@buildup.kr')}
-          >
-            <Text style={styles.demoRole}>관리자</Text>
-            <Text style={styles.demoEmail}>park@buildup.kr</Text>
-            <Text style={styles.demoNote}>최고 책임자</Text>
-          </Pressable>
-          <Pressable
-            style={styles.demoItem}
-            onPress={() => fill('worker@buildup.kr')}
-          >
-            <Text style={styles.demoRole}>작업자</Text>
-            <Text style={styles.demoEmail}>worker@buildup.kr</Text>
+            <Text style={styles.signupLink}>회원가입</Text>
           </Pressable>
         </View>
 
@@ -199,46 +159,47 @@ const styles = StyleSheet.create({
   },
   kakaoPressed: { opacity: 0.85 },
   kakaoText: { fontSize: 16, fontWeight: '700', color: 'rgba(0,0,0,0.85)' },
-  root: { flex: 1, backgroundColor: colors.white },
+  root: { flex: 1, backgroundColor: colors.ink950 },
   scroll: { flexGrow: 1, paddingHorizontal: 20 },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-    lineHeight: 34,
-    marginTop: 20,
+  brand: {
+    fontSize: 36,
+    fontWeight: '900',
+    color: colors.white,
+    textAlign: 'center',
+    letterSpacing: -0.5,
   },
-  subtitle: { fontSize: 15, color: colors.textSub, marginTop: 8 },
-  form: { marginTop: 36 },
+  brandUp: { color: colors.yellow },
+  subtitle: {
+    fontSize: 14,
+    color: colors.ink400,
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  card: {
+    marginTop: 32,
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: 20,
+  },
   signupRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 20,
+    marginTop: 24,
   },
-  signupText: { fontSize: 14, color: colors.textSub },
+  signupText: { fontSize: 14, color: colors.ink400 },
   signupLink: {
     fontSize: 14,
     fontWeight: '700',
-    color: colors.text,
+    color: colors.white,
     textDecorationLine: 'underline',
   },
-  demo: { marginTop: 'auto', paddingTop: 32 },
-  server: { alignSelf: 'center', marginTop: 16, padding: 4 },
-  serverText: { fontSize: 12, color: colors.textMuted },
-  serverLink: { fontWeight: '700', color: colors.textSub },
-  demoTitle: { fontSize: 12, color: colors.textMuted, marginBottom: 8 },
-  demoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.fill,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 6,
+  server: {
+    alignSelf: 'center',
+    marginTop: 'auto',
+    paddingTop: 32,
+    padding: 4,
   },
-  demoRole: { fontSize: 13, fontWeight: '700', color: colors.text, width: 52 },
-  demoEmail: { flex: 1, fontSize: 13, color: colors.textSub },
-  demoNote: { fontSize: 12, color: colors.textMuted },
+  serverText: { fontSize: 12, color: colors.ink400 },
+  serverLink: { fontWeight: '700', color: colors.white },
 });

@@ -429,7 +429,7 @@ public class ReportService {
             if (!Report.PENDING.equals(r.status())) {
                 throw ApiException.conflict("이미 검토한 보고예요. 목록을 새로고침해 주세요.");
             }
-            throw ApiException.forbidden("현장 총관리자나 본사 관계자만 검토할 수 있어요.");
+            throw ApiException.forbidden("현장 관리자나 본사 관계자만 검토할 수 있어요.");
         }
         r.addReview(viewer, next, text.isEmpty() ? null : text, Instant.now());
         notices.reportReviewed(r);

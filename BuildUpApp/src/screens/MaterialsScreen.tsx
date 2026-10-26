@@ -1,4 +1,4 @@
-// 현장 자재 요청 목록: 상태별 보기, 총관리자·본사 승인·반려, 작성자 취소
+// 현장 자재 요청 목록: 상태별 보기, 관리자·본사 승인·반려, 작성자 취소
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,

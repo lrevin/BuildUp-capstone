@@ -43,8 +43,14 @@ export default function HqReportsScreen({
       siteId ? fetchReportPage(siteId, { cursor }) : fetchHqReportPage(cursor),
     [siteId],
   );
-  const { items: reports, total, loadingMore, error, reload, loadMore } =
-    usePagedReports(loader);
+  const {
+    items: reports,
+    total,
+    loadingMore,
+    error,
+    reload,
+    loadMore,
+  } = usePagedReports(loader);
 
   const load = useCallback(async () => {
     await reload();
@@ -110,7 +116,10 @@ export default function HqReportsScreen({
             siteId ? (
               <View style={styles.menu}>
                 <Pressable
-                  style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.row,
+                    pressed && styles.pressed,
+                  ]}
                   onPress={() =>
                     navigation.navigate('Materials', {
                       siteId,

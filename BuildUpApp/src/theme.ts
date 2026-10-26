@@ -9,7 +9,7 @@ export const colors = {
   // 글자
   text: '#121722',
   textSub: '#6B7080',
-  textMuted: '#9CA3AF',
+  textMuted: '#7D8594', // 흐린 글자(흰 바탕에서도 읽히는 밝기)
   gray: '#6B7080', // (이전 이름 호환)
 
   // 면
@@ -22,6 +22,12 @@ export const colors = {
 
   danger: '#E5484D',
   success: '#1F9D55',
+
+  // 로그인·회원가입 바탕(웹 대시보드와 같은 색)
+  ink950: '#0D1118', // 화면 바탕
+  ink900: '#121823', // 상단바
+  ink800: '#1B2330', // 테두리·구분선
+  ink400: '#8792A2', // 어두운 바탕 위 보조 글자
 };
 
 export const radius = { sm: 10, md: 14, lg: 20 };
