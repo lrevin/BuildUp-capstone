@@ -121,6 +121,11 @@ function RootNavigator() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen
+            name="PasswordReset"
+            component={PasswordResetScreen}
+            navigationKey="guest"
+          />
           {/* 개발용 서버 설정: 로그인 화면 로고를 길게 누르면 열린다(사용자에게는 보이지 않음) */}
           <Stack.Screen
             name="Server"

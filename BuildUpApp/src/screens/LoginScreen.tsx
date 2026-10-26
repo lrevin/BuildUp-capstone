@@ -84,6 +84,13 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
             onSubmitEditing={onLogin}
           />
           <Button title="로그인" onPress={onLogin} loading={loading} />
+          <Pressable
+            style={styles.forgot}
+            hitSlop={8}
+            onPress={() => navigation.navigate('PasswordReset')}
+          >
+            <Text style={styles.forgotText}>비밀번호를 잊으셨나요?</Text>
+          </Pressable>
           <OrDivider />
           <KakaoButton label="카카오 로그인" />
         </View>
@@ -124,6 +131,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: radius.lg,
     padding: 20,
+  },
+  forgot: { alignSelf: 'center', marginTop: 14 },
+  forgotText: {
+    fontSize: 13,
+    color: colors.textSub,
+    textDecorationLine: 'underline',
   },
   signupRow: {
     flexDirection: 'row',

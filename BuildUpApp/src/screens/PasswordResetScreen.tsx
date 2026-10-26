@@ -1,4 +1,5 @@
 // 비밀번호 찾기: 가입한 이메일로 받은 코드를 확인하고 새 비밀번호를 정한다
+// 로그인 화면("비밀번호를 잊으셨나요?")과 내 정보 두 곳에서 연다
 import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -13,7 +14,7 @@ import {
   verifyPasswordCode,
 } from '../api/buildup';
 import { errorMessage } from '../api/client';
-import { useAuth, useUser } from '../auth';
+import { useAuth } from '../auth';
 import { useDialog } from '../components/Dialog';
 import { VerifyField } from '../components/VerifyField';
 import { AppHeader, BottomBar, Button, Card, Field } from '../components/ui';
@@ -25,10 +26,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function PasswordResetScreen({
   navigation,
 }: ScreenProps<'PasswordReset'>) {
-  const user = useUser();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth(); // 로그인 화면에서 열면 user 없음
   const dialog = useDialog();
-  const [email, setEmail] = useState(user.email);
+  const [email, setEmail] = useState(user?.email ?? '');
   const [token, setToken] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
@@ -70,7 +70,11 @@ export default function PasswordResetScreen({
       title: '비밀번호를 바꿨어요',
       message: '새 비밀번호로 다시 로그인해 주세요.',
     });
-    logout();
+    if (user) {
+      logout();
+    } else {
+      navigation.goBack();
+    }
   };
 
   return (
@@ -89,6 +93,7 @@ export default function PasswordResetScreen({
             label="이메일"
             value={email}
             onChangeText={setEmail}
+            placeholder="가입한 이메일 주소"
             keyboardType="email-address"
             autoCapitalize="none"
             check={v =>

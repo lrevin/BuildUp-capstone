@@ -7,6 +7,7 @@ export type AuthStackParamList = {
   RoleSelect: { kakao?: KakaoSignup } | undefined; // 카카오로 처음 온 사람은 kakao를 들고 온다
   SignUp: { role: Role; kakao?: KakaoSignup };
   Server: undefined; // 개발용: 로그인 화면 로고를 길게 눌러 연다
+  PasswordReset: undefined; // 비밀번호 찾기(로그인 화면 · 내 정보)
 };
 
 // (로그인 후) 현장 관리자 전환·보고 체계 변경은 AppStack에
@@ -15,7 +16,6 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   Sites: undefined;
   Profile: undefined;
-  PasswordReset: undefined; // 내 정보 → 비밀번호 찾기
   AddSite: undefined; // 공사 현장 추가: 작업자 / 관리자 고르기
   CreateSite: undefined;
   SiteCode: {
