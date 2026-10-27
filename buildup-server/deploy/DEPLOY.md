@@ -129,6 +129,58 @@ sudo systemctl restart buildup
 journalctl -u buildup -f     # 로그 확인
 ```
 
+## 8. 서버가 꺼지지 않게(발표·CBT 기간 필수)
+
+한 번만 하면 됩니다. 위에서부터 차례로.
+
+**① 서버 프로그램이 죽어도 자동으로 다시 켜지게**: 새 `buildup.service`로 바꾸기
+
+```
+sudo cp buildup.service /etc/systemd/system/buildup.service
+sudo systemctl daemon-reload
+sudo systemctl enable buildup nginx      # 컴퓨터를 다시 켜도 자동 실행
+sudo systemctl restart buildup
+systemctl show buildup -p Restart        # Restart=always 나오면 성공
+```
+
+**② 멈춰서 응답만 안 하는 경우도 다시 켜지게**: `healthcheck.sh`
+
+```
+sudo cp healthcheck.sh /opt/buildup/healthcheck.sh
+sudo chmod +x /opt/buildup/healthcheck.sh
+sudo crontab -e
+# 맨 아래 한 줄 추가:
+* * * * * /opt/buildup/healthcheck.sh >> /opt/buildup/healthcheck.log 2>&1
+```
+
+**③ 메모리 부족으로 죽지 않게**: 스왑 2GB 만들기(t2/t3.micro처럼 메모리 1GB면 꼭)
+
+```
+free -h                                  # Swap이 0이면 아래 실행
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+**④ AWS 콘솔에서 확인할 것**
+
+| 항목 | 왜 | 어디서 |
+|---|---|---|
+| **탄력적 IP(Elastic IP) 연결** | 안 붙어 있으면 인스턴스를 껐다 켤 때 IP가 바뀌어 `buildup.o-r.kr`이 끊김 | EC2 → 탄력적 IP → 할당 → 인스턴스에 연결(바뀌면 내도메인.한국 A 레코드도 새 IP로) |
+| **자동 복구 알람** | AWS 하드웨어 문제로 멈추면 자동으로 다른 곳에서 다시 켬 | EC2 → 인스턴스 → 작업 → 모니터링 → CloudWatch 알람 → "상태 검사 실패(시스템)" 시 **복구** |
+| **종료 보호** | 실수로 "종료(Terminate)" 눌러 서버가 통째로 사라지는 것 막기 | EC2 → 인스턴스 → 작업 → 인스턴스 설정 → 종료 방지 활성화 |
+| **RDS 자동 백업** | DB 날아가도 되살리기 | RDS → 수정 → 백업 보존 기간 7일 |
+| **요금·크레딧** | 프리 티어나 크레딧이 끝나면 서버가 멈출 수 있음 | 결제 → 예산(Budgets)에서 알림 걸어 두기 |
+
+**⑤ https 인증서 자동 갱신 확인**
+
+```
+systemctl list-timers | grep certbot     # certbot.timer가 보이면 자동 갱신 중
+sudo certbot renew --dry-run             # 갱신 연습(성공 나오면 OK)
+```
+
+**⑥ 꺼졌을 때 바로 알기**: [UptimeRobot](https://uptimerobot.com)(무료)에 `https://buildup.o-r.kr/api/health`를 5분 간격으로 등록 → 꺼지면 메일로 알림
+
 ## 운영(prod) 설정이 하는 일
 
 - DB 비밀번호 등은 파일이 아니라 환경 변수(`buildup.env`)에서 읽음

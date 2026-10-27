@@ -6,17 +6,24 @@
 
 [Unit]
 Description=Build Up server
-After=network.target mysql.service
+Wants=network-online.target
+After=network-online.target mysql.service
+# 계속 죽어도 재시작을 포기하지 않는다(기본값은 10초에 5번 넘게 죽으면 멈춤)
+StartLimitIntervalSec=0
 
 [Service]
 User=buildup
 WorkingDirectory=/opt/buildup
 # DB 주소·비밀번호 등은 이 파일에(권한 600, 다른 사람이 못 읽게)
 EnvironmentFile=/opt/buildup/buildup.env
-ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /opt/buildup/buildup-server.jar --spring.profiles.active=prod
+# 메모리가 모자라 멈추면(OutOfMemoryError) 그대로 매달려 있지 말고 바로 꺼져서 다시 켜지게
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError -jar /opt/buildup/buildup-server.jar --spring.profiles.active=prod
 SuccessExitStatus=143
-Restart=on-failure
+# 오류든, 누가 kill 했든, 정상 종료든 무조건 5초 뒤 다시 켠다
+Restart=always
 RestartSec=5
+# 메모리가 부족할 때 리눅스가 다른 것보다 이 서버를 나중에 죽이게
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target
