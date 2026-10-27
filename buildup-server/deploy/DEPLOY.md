@@ -40,16 +40,18 @@ exit
 
 | 이 폴더의 파일 | 서버 위치 |
 |---|---|
-| `build/libs/buildup-server.jar` | `/opt/buildup/buildup-server.jar` |
-| `buildup.env.example` (값 채우기) | `/opt/buildup/buildup.env` (권한 600) |
+| `build/libs/buildup-server.jar` | `/opt/buildup/buildup.jar` |
+| `buildup.env.example` (값 채우기) | `/etc/buildup/buildup.env` (권한 600) |
 | `buildup.service` | `/etc/systemd/system/buildup.service` |
 | `nginx-buildup.conf` (도메인 바꾸기) | `/etc/nginx/sites-available/buildup` |
 | `backup.sh` | `/opt/buildup/backup.sh` (실행 권한) |
 | `firebase-key.json` (알림 키, 깃에 없음) | `/opt/buildup/firebase-key.json` (권한 600) |
 
 ```
+sudo install -d -o root -g buildup -m 750 /etc/buildup
 sudo chown -R buildup:buildup /opt/buildup
-sudo chmod 600 /opt/buildup/buildup.env
+sudo chown root:root /etc/buildup/buildup.env
+sudo chmod 600 /etc/buildup/buildup.env
 sudo systemctl daemon-reload
 sudo systemctl enable --now buildup
 ```
@@ -124,42 +126,85 @@ powershell -ExecutionPolicy Bypass -File scripts\build-server-apk.ps1 -ServerUrl
 ## 7. 업데이트할 때
 
 ```
-새 jar를 /opt/buildup/buildup-server.jar 에 덮어쓰기
+새 jar를 /opt/buildup/buildup.jar 에 덮어쓰기
 sudo systemctl restart buildup
 journalctl -u buildup -f     # 로그 확인
 ```
 
 ## 8. 서버가 꺼지지 않게(발표·CBT 기간 필수)
 
-한 번만 하면 됩니다. 위에서부터 차례로.
+아래 경로는 현재 운영 서버 기준입니다.
 
-**① 서버 프로그램이 죽어도 자동으로 다시 켜지게**: 새 `buildup.service`로 바꾸기
+- JAR: `/opt/buildup/buildup.jar`
+- 환경 변수: `/etc/buildup/buildup.env`
+- systemd 서비스: `/etc/systemd/system/buildup.service`
+
+`buildup.service`와 `healthcheck.sh`를 EC2에서 바로 복사하려면 저장소 루트에서 명령을 실행해야 합니다.
+EC2에 저장소가 없다면 두 파일을 먼저 `/home/ec2-user/`로 업로드한 뒤 명령의 원본 경로를 해당 위치로 바꿉니다.
+
+**① 서버 프로그램이 비정상 종료되면 자동으로 다시 켜지게**: 새 `buildup.service` 적용
 
 ```
-sudo cp buildup.service /etc/systemd/system/buildup.service
+# 기존 설정을 즉시 복구할 수 있도록 먼저 보관
+sudo cp -a /etc/systemd/system/buildup.service \
+  /etc/systemd/system/buildup.service.pre-resilience
+
+# 저장소 루트에서 실행
+sudo install -o root -g root -m 644 \
+  api/server/deploy/buildup.service \
+  /etc/systemd/system/buildup.service
+
+# 설정 검증이 실패하면 재시작하지 말고 파일부터 수정
+sudo systemd-analyze verify /etc/systemd/system/buildup.service
 sudo systemctl daemon-reload
 sudo systemctl enable buildup nginx      # 컴퓨터를 다시 켜도 자동 실행
 sudo systemctl restart buildup
-systemctl show buildup -p Restart        # Restart=always 나오면 성공
+sudo systemctl is-active buildup
+systemctl show buildup -p Restart        # Restart=on-failure 나오면 성공
+curl -fsS https://buildup.o-r.kr/api/health
+
+# 문제가 있으면 즉시 기존 설정으로 복구
+# sudo cp -a /etc/systemd/system/buildup.service.pre-resilience \
+#   /etc/systemd/system/buildup.service
+# sudo systemctl daemon-reload
+# sudo systemctl restart buildup
 ```
 
-**② 멈춰서 응답만 안 하는 경우도 다시 켜지게**: `healthcheck.sh`
+**② 프로세스는 실행 중이지만 응답하지 않는 경우 다시 켜지게**: `healthcheck.sh`
 
 ```
-sudo cp healthcheck.sh /opt/buildup/healthcheck.sh
-sudo chmod +x /opt/buildup/healthcheck.sh
+sudo install -o root -g root -m 755 \
+  api/server/deploy/healthcheck.sh \
+  /opt/buildup/healthcheck.sh
 sudo crontab -e
 # 맨 아래 한 줄 추가:
 * * * * * /opt/buildup/healthcheck.sh >> /opt/buildup/healthcheck.log 2>&1
 ```
 
-**③ 메모리 부족으로 죽지 않게**: 스왑 2GB 만들기(t2/t3.micro처럼 메모리 1GB면 꼭)
+스크립트는 서비스가 `active`인 상태에서 API가 3회 연속 실패할 때만 Spring Boot를 재시작합니다.
+관리자가 `sudo systemctl stop buildup`으로 의도적으로 중지한 경우에는 다시 켜지 않으며, Nginx도 건드리지 않습니다.
+
+**③ 메모리 부족 위험 완화**: 스왑 2GB 만들기(t2/t3.micro처럼 메모리 1GB인 경우)
 
 ```
-free -h                                  # Swap이 0이면 아래 실행
-sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
-sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
+df -h /
+
+# /swapfile이 아직 없을 때만 생성
+if [ ! -f /swapfile ]; then
+  sudo fallocate -l 2G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+fi
+
+# 아직 활성화되지 않았을 때만 활성화
+swapon --show=NAME --noheadings | grep -qx '/swapfile' || sudo swapon /swapfile
+
+# 재부팅 설정도 중복 추가하지 않음
+grep -qE '^/swapfile[[:space:]]' /etc/fstab || \
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+free -h
 ```
 
 **④ AWS 콘솔에서 확인할 것**
@@ -170,7 +215,7 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 | **자동 복구 알람** | AWS 하드웨어 문제로 멈추면 자동으로 다른 곳에서 다시 켬 | EC2 → 인스턴스 → 작업 → 모니터링 → CloudWatch 알람 → "상태 검사 실패(시스템)" 시 **복구** |
 | **종료 보호** | 실수로 "종료(Terminate)" 눌러 서버가 통째로 사라지는 것 막기 | EC2 → 인스턴스 → 작업 → 인스턴스 설정 → 종료 방지 활성화 |
 | **RDS 자동 백업** | DB 날아가도 되살리기 | RDS → 수정 → 백업 보존 기간 7일 |
-| **요금·크레딧** | 프리 티어나 크레딧이 끝나면 서버가 멈출 수 있음 | 결제 → 예산(Budgets)에서 알림 걸어 두기 |
+| **요금·크레딧** | 프리 티어·크레딧 종료 후 예상하지 못한 과금 감지 | 결제 → 예산(Budgets)에서 알림 걸어 두기(예산 알림이 리소스를 자동 중지하지는 않음) |
 
 **⑤ https 인증서 자동 갱신 확인**
 
@@ -234,7 +279,7 @@ sudo certbot renew --dry-run             # 갱신 연습(성공 나오면 OK)
 3. 탄력적 IP를 붙이고, 도메인 A 레코드를 그 IP로
 4. 접속 후 위 **2~4번**을 그대로 하되, MySQL은 설치하지 않습니다(`mysql-server` 빼기)
 
-## E. 환경 변수(`/opt/buildup/buildup.env`)
+## E. 환경 변수(`/etc/buildup/buildup.env`)
 ```
 DB_URL=jdbc:mysql://RDS엔드포인트:3306/buildup?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
 DB_USERNAME=buildup

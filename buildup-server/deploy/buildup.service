@@ -1,29 +1,31 @@
-# 리눅스 서버에서 자동 실행(재부팅해도 켜짐) 설정 예시
-# /etc/systemd/system/buildup.service 로 복사 후:
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now buildup
-#   상태 보기: sudo systemctl status buildup / 로그: journalctl -u buildup -f
+# BuildUp 운영 서버용 systemd 서비스
+# /etc/systemd/system/buildup.service 로 설치한 후 daemon-reload 및 restart한다.
 
 [Unit]
-Description=Build Up server
+Description=BuildUp Spring Boot API
 Wants=network-online.target
-After=network-online.target mysql.service
-# 계속 죽어도 재시작을 포기하지 않는다(기본값은 10초에 5번 넘게 죽으면 멈춤)
-StartLimitIntervalSec=0
+After=network-online.target
+# 영구적인 설정 오류가 있을 때 무한 재시작하지 않도록 1분에 5회로 제한한다.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
+Type=simple
 User=buildup
+Group=buildup
 WorkingDirectory=/opt/buildup
-# DB 주소·비밀번호 등은 이 파일에(권한 600, 다른 사람이 못 읽게)
-EnvironmentFile=/opt/buildup/buildup.env
-# 메모리가 모자라 멈추면(OutOfMemoryError) 그대로 매달려 있지 말고 바로 꺼져서 다시 켜지게
-ExecStart=/usr/bin/java -Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError -jar /opt/buildup/buildup-server.jar --spring.profiles.active=prod
+EnvironmentFile=/etc/buildup/buildup.env
+LogsDirectory=buildup
+LogsDirectoryMode=0750
+# OutOfMemoryError가 발생하면 JVM을 종료하고 Restart=on-failure가 복구한다.
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError -jar /opt/buildup/buildup.jar
 SuccessExitStatus=143
-# 오류든, 누가 kill 했든, 정상 종료든 무조건 5초 뒤 다시 켠다
-Restart=always
+Restart=on-failure
 RestartSec=5
-# 메모리가 부족할 때 리눅스가 다른 것보다 이 서버를 나중에 죽이게
-OOMScoreAdjust=-500
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
