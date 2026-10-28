@@ -176,13 +176,34 @@ curl -fsS https://buildup.o-r.kr/api/health
 sudo install -o root -g root -m 755 \
   api/server/deploy/healthcheck.sh \
   /opt/buildup/healthcheck.sh
-sudo crontab -e
-# 맨 아래 한 줄 추가:
-* * * * * /opt/buildup/healthcheck.sh >> /opt/buildup/healthcheck.log 2>&1
+
+# 운영 EC2(Amazon Linux 2023)는 cron이 기본 설치되어 있지 않을 수 있음
+sudo dnf install -y cronie
+sudo systemctl enable --now crond
+sudo systemctl is-active crond
+
+# 1분마다 root 권한으로 실행하도록 전용 cron 파일 생성
+echo '* * * * * root /opt/buildup/healthcheck.sh >> /opt/buildup/healthcheck.log 2>&1' \
+  | sudo tee /etc/cron.d/buildup-healthcheck
+sudo chown root:root /etc/cron.d/buildup-healthcheck
+sudo chmod 644 /etc/cron.d/buildup-healthcheck
+
+# 설치 및 등록 확인
+sudo sh -n /opt/buildup/healthcheck.sh
+sudo /opt/buildup/healthcheck.sh
+sudo cat /etc/cron.d/buildup-healthcheck
 ```
 
-스크립트는 서비스가 `active`인 상태에서 API가 3회 연속 실패할 때만 Spring Boot를 재시작합니다.
-관리자가 `sudo systemctl stop buildup`으로 의도적으로 중지한 경우에는 다시 켜지 않으며, Nginx도 건드리지 않습니다.
+스크립트는 서비스 상태에 따라 다음처럼 동작합니다.
+
+- `active`: API가 3회 연속 실패하면 Spring Boot를 재시작합니다.
+- `failed`: 1분 내 재시작 제한에 걸려 systemd가 포기한 상태이므로 `reset-failed` 후 다시 시작합니다.
+- `inactive`: 관리자가 `sudo systemctl stop buildup`으로 의도적으로 중지한 상태이므로 다시 켜지 않습니다.
+
+환경 파일 누락이나 잘못된 JAR처럼 영구적인 오류가 있으면 `failed` 상태를 1분마다 다시 시작하려고 시도하며,
+실패 내용은 `/opt/buildup/healthcheck.log`에 남습니다. 외부 장애 알림도 함께 운영해야 반복 실패를 놓치지 않습니다.
+헬스체크는 Nginx를 재시작하지 않습니다.
+서버가 정상이면 `/opt/buildup/healthcheck.log`가 생성되더라도 내용이 비어 있는 것이 정상입니다.
 
 **③ 메모리 부족 위험 완화**: 스왑 2GB 만들기(t2/t3.micro처럼 메모리 1GB인 경우)
 

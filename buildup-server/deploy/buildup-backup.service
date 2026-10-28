@@ -1,0 +1,8 @@
+[Unit]
+Description=BuildUp RDS Database Backup
+
+[Service]
+Type=oneshot
+User=buildup
+Group=buildup
+ExecStart=/opt/buildup/backup.sh
