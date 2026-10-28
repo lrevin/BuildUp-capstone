@@ -84,6 +84,7 @@ interface SiteRow {
   progressMode?: ProgressMode; // 없으면 직접 입력
   workType?: string | null; // 공사 종류
   lastReportedAt?: string | null;
+  materials?: MaterialItem[]; // 현장 자재 재고(남은 양)
 }
 
 type ReportRow = Omit<
@@ -1105,7 +1106,19 @@ export const dummyDb = {
       hqName: companies.find(c => c.id === s.companyId)?.name ?? null,
       latitude: s.latitude ?? null,
       longitude: s.longitude ?? null,
+      materials: (s.materials ?? []).map(m => ({ ...m, updatedAt: null })),
     });
+  },
+
+  // 최고 책임자: 현장 자재 재고 바꾸기
+  setSiteMaterials(
+    userId: string,
+    siteId: string,
+    items: MaterialItem[],
+  ): Site {
+    const s = findOwnedSite(userId, siteId, '자재 재고를 수정');
+    s.materials = items.filter(m => m.name.trim());
+    return dummyDb.getSite(userId, siteId);
   },
 
   // 관리자: 현장 위치 저장(null이면 지우기)
@@ -1144,6 +1157,7 @@ export const dummyDb = {
       progress: 0,
       workType: workType.slice(0, 50),
       lastReportedAt: null,
+      materials: (input.materials ?? []).filter(m => m.name.trim()),
     };
     if (input.progressMode === 'auto') {
       applyMode(row, 'auto', input.processes ?? []);
@@ -1407,7 +1421,10 @@ export const dummyDb = {
         takenAt: input.photoTakenAt?.[i] ?? null,
         latitude: null,
         longitude: null,
+        phase: input.photoPhases?.[i] ?? 'after',
       })),
+      rating: s.ownerId === u.id ? input.rating ?? null : null,
+      materialUsages: input.materials ?? [],
       location: input.location ?? null,
       // 본사 없는 현장의 관리자(최고 책임자) 보고는 바로 승인
       review: {

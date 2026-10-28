@@ -62,6 +62,8 @@ export function VerifyField({
   const [now, setNow] = useState(Date.now());
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
+  // 인증 코드가 틀렸을 때: 키보드에 가리지 않게 코드 입력칸 바로 아래 빨간 글씨로
+  const [codeError, setCodeError] = useState<string | null>(null);
   const codeRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   // 지금 입력칸의 값(서버 응답이 오는 사이에 값을 바꿨으면 그 응답은 버린다)
   const current = useRef(value);
@@ -90,6 +92,7 @@ export function VerifyField({
       setSentTo(null);
       setCode('');
     }
+    setCodeError(null);
     // 다른 값은 바로 코드를 받을 수 있다(다시 받기 대기는 같은 값에만)
     setResendAt(0);
     setExpiresAt(0);
@@ -114,6 +117,7 @@ export function VerifyField({
       setExpiresAt(t + r.expiresInSeconds * 1000);
       setResendAt(t + r.resendAfterSeconds * 1000);
       setCode('');
+      setCodeError(null);
       dialog.toast('인증 코드를 보냈어요');
       setTimeout(() => codeRef.current?.focus(), 200);
     } catch (e) {
@@ -125,9 +129,10 @@ export function VerifyField({
 
   const onVerify = async () => {
     if (!/^\d{6}$/.test(code)) {
-      dialog.toast('인증 코드 6자리를 입력해 주세요', 'error');
+      setCodeError('인증 코드 6자리를 입력해 주세요');
       return;
     }
+    setCodeError(null);
     setChecking(true);
     try {
       const checkedValue = value;
@@ -139,7 +144,7 @@ export function VerifyField({
       setSentTo(null);
       setCode('');
     } catch (e) {
-      dialog.toast(errorMessage(e).replace(/\.$/, ''), 'error');
+      setCodeError(errorMessage(e).replace(/\.$/, ''));
     } finally {
       setChecking(false);
     }
@@ -194,9 +199,12 @@ export function VerifyField({
           <View style={styles.flex}>
             <TextInput
               ref={codeRef}
-              style={styles.input}
+              style={[styles.input, codeError ? styles.inputError : null]}
               value={code}
-              onChangeText={t => setCode(t.replace(/\D/g, '').slice(0, 6))}
+              onChangeText={t => {
+                setCode(t.replace(/\D/g, '').slice(0, 6));
+                setCodeError(null);
+              }}
               placeholder="인증 코드 6자리"
               placeholderTextColor={colors.textMuted}
               keyboardType="number-pad"
@@ -224,6 +232,11 @@ export function VerifyField({
             )}
           </Pressable>
         </View>
+      ) : null}
+      {sentTo && !done && codeError ? (
+        <Text style={styles.error} accessibilityLiveRegion="polite">
+          {codeError}
+        </Text>
       ) : null}
       {locked && lockedHint ? (
         <Text style={styles.hint}>{lockedHint}</Text>
@@ -286,4 +299,11 @@ const styles = StyleSheet.create({
   },
   timerOver: { color: colors.textMuted },
   hint: { fontSize: 12, color: colors.textMuted, marginTop: 6 },
+  inputError: { borderColor: colors.danger },
+  error: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.danger,
+    marginTop: 6,
+  },
 });

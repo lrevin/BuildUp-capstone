@@ -70,23 +70,53 @@ public class AuthService {
     }
 
     private static ApiException withdrawn() {
-        return ApiException.forbidden("탈퇴한 계정이에요. 탈퇴 7일 뒤 계정 정보가 모두 삭제돼요.");
+        return ApiException.forbidden("탈퇴 신청한 계정이에요. 7일 안에 같은 이메일로 다시 가입하면 계정과 현장 기록이 그대로 복구돼요.");
     }
 
     @Transactional
     public AuthResponse signUp(SignUpRequest req) {
         String email = normalize(req.email());
-        users.findByEmail(email).ifPresent(u -> {
-            throw u.isWithdrawn() ? SignupVerification.withdrawnEmail() : ApiException.conflict("이미 가입된 이메일입니다.");
-        });
+        User existing = users.findByEmail(email).orElse(null);
+        if (existing != null && !existing.isWithdrawn()) {
+            throw ApiException.conflict("이미 가입된 이메일입니다.");
+        }
         SignupVerification.Checked checked = verification.check(req, email);
         try {
-            return createUser(req, email, checked);
+            // 탈퇴 신청 7일 안에 다시 가입: 새 계정을 만들지 않고 원래 계정·데이터를 그대로 살린다
+            return existing != null ? restore(existing, req, checked) : createUser(req, email, checked);
         } catch (RuntimeException e) {
             // 가입이 안 됐으니 꺼내 쓴 인증을 되돌려 놓는다(다른 칸만 고쳐 다시 보내면 되게)
             checked.undo().run();
             throw e;
         }
+    }
+
+    /**
+     * 실수로 탈퇴한 사람을 위한 복구: 탈퇴 신청을 취소하고 이름·역할·현장·보고는 그대로 둔다.
+     * 비밀번호는 다시 가입할 때 입력한 것으로 바꾼다.
+     */
+    private AuthResponse restore(User user, SignUpRequest req, SignupVerification.Checked checked) {
+        boolean hasPassword = req.password() != null && !req.password().isBlank();
+        if (checked.kakao() == null && !hasPassword) {
+            throw ApiException.badRequest("비밀번호를 입력해 주세요.");
+        }
+        user.setDeletedAt(null);
+        if (hasPassword) {
+            user.setPasswordHash(passwordEncoder.encode(req.password()));
+        }
+        Instant now = Instant.now();
+        if (checked.emailVerified()) {
+            user.setEmailVerifiedAt(now);
+        }
+        if (checked.phoneVerified()) {
+            user.setPhoneVerifiedAt(now);
+        }
+        if (checked.kakao() != null
+                && socials.findByProviderAndProviderUserId(SocialAccount.KAKAO, checked.kakao().target()).isEmpty()) {
+            socials.saveAndFlush(new SocialAccount(user, SocialAccount.KAKAO, checked.kakao().target(),
+                    checked.kakao().data().get("email")));
+        }
+        return issue(user);
     }
 
     private AuthResponse createUser(SignUpRequest req, String email, SignupVerification.Checked checked) {
@@ -163,7 +193,8 @@ public class AuthService {
         if (linked.isPresent()) {
             User user = linked.get().getUser();
             if (user.isWithdrawn()) {
-                throw withdrawn();
+                // 카카오로 가입한 계정: 탈퇴 신청 7일 안에 카카오로 다시 들어오면 원래 계정을 복구한다
+                user.setDeletedAt(null);
             }
             if (user.isDisabled()) {
                 throw ApiException.forbidden("사용이 중지된 계정이에요. 관리자에게 문의해 주세요.");

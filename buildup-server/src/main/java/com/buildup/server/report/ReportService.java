@@ -1,11 +1,14 @@
 package com.buildup.server.report;
 
 import com.buildup.server.common.ApiException;
+import com.buildup.server.material.MaterialItem;
 import com.buildup.server.push.Notices;
+import com.buildup.server.report.ReportDtos.MaterialUsageDto;
 import com.buildup.server.report.ReportDtos.ReportDto;
 import com.buildup.server.report.ReportDtos.ReportPageDto;
 import com.buildup.server.report.ReportDtos.WorkLogDto;
 import com.buildup.server.site.Site;
+import com.buildup.server.site.SiteMaterial;
 import com.buildup.server.site.SiteProcess;
 import com.buildup.server.site.SiteService;
 import com.buildup.server.user.User;
@@ -28,7 +31,6 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class ReportService {
 
-    public static final int MAX_PHOTOS = 10;
     /** 직접 입력 보고를 API에서 부르는 공정 이름 */
     public static final String WORK_KEY = Report.WORK_KEY;
     public static final int MAX_FILES = 5;
@@ -55,6 +57,7 @@ public class ReportService {
      * 보고 전·후 현장 전체 진행률.
      * 직접 입력 보고는 보고에 적힌 값 그대로, 자동 계산 현장의 공정 보고는 그 현장 보고를 처음부터 다시 따라가며
      * 공정 가중치로 계산한다(DB에는 공정 진행률만 저장되므로). 현장마다 한 번만 계산해서 기억한다.
+     * 승인된 보고만 다음 보고의 '보고 전' 값에 반영한다(대기 보고는 '승인되면 이렇게 된다'는 값).
      */
     final class Overall {
         private final Map<Long, Map<Long, double[]>> bySite = new java.util.HashMap<>();
@@ -91,10 +94,17 @@ public class ReportService {
                 continue;
             }
             double before = weighted(weights, state);
-            if (weights.containsKey(r.getProcessKey())) {
-                state.put(r.getProcessKey(), r.getToProgress());
+            if (!weights.containsKey(r.getProcessKey())) {
+                out.put(r.getId(), new double[] {before, before});
+                continue;
             }
-            out.put(r.getId(), new double[] {before, Math.max(before, weighted(weights, state))});
+            Double prev = state.get(r.getProcessKey());
+            state.put(r.getProcessKey(), Math.max(prev, r.getToProgress()));
+            double after = weighted(weights, state);
+            if (!r.isApproved()) {
+                state.put(r.getProcessKey(), prev); // 승인 전 보고는 진행률에 반영하지 않는다
+            }
+            out.put(r.getId(), new double[] {before, Math.max(before, after)});
         }
         return out;
     }
@@ -285,7 +295,10 @@ public class ReportService {
             List<MultipartFile> photos,
             List<MultipartFile> documents,
             SubmitPlace place,
-            List<String> photoTakenAt) {
+            List<String> photoTakenAt,
+            List<String> photoPhases,
+            Double rating,
+            List<MaterialUsageDto> usages) {
         Site site = sites.memberSite(userId, siteId);
         String workText = work == null ? "" : work.trim();
         if (workText.length() > 100) {
@@ -314,12 +327,19 @@ public class ReportService {
                 throw ApiException.badRequest("진행률은 지금 진행률(" + current + "%) 이상, 100% 이하여야 해요.");
             }
         }
-        List<MultipartFile> uploads = photos == null
-                ? List.of()
-                : photos.stream().filter(f -> !f.isEmpty()).toList();
-        if (uploads.size() > MAX_PHOTOS) {
-            throw ApiException.badRequest("사진은 최대 " + MAX_PHOTOS + "장까지 올릴 수 있어요.");
+        // 사진 장수 제한은 없다(한 번에 올리는 전체 용량만 서버 설정으로 제한)
+        List<MultipartFile> uploads = new ArrayList<>();
+        List<String> phases = new ArrayList<>();
+        if (photos != null) {
+            for (int i = 0; i < photos.size(); i++) {
+                if (!photos.get(i).isEmpty()) {
+                    uploads.add(photos.get(i));
+                    phases.add(phase(photoPhases != null && i < photoPhases.size() ? photoPhases.get(i) : null));
+                }
+            }
         }
+        Double score = rating(site, userId, rating);
+        List<MaterialItem> used = usages(usages);
         List<MultipartFile> docs = documents == null
                 ? List.of()
                 : documents.stream().filter(f -> !f.isEmpty()).toList();
@@ -340,13 +360,12 @@ public class ReportService {
         r.setSite(site);
         r.setWork(workText);
         if (process != null) {
-            // 자동 계산: 보고에는 공정 진행률(보고 전 → 후)을 저장한다
+            // 자동 계산: 보고에는 공정 진행률(보고 전 → 후)을 저장한다. 공정 진행률 자체는 승인될 때 바뀐다
             double pTo = Math.round(processTo * 10) / 10.0;
             r.setProcessKey(process.getKey());
             r.setProcessName(process.getName());
             r.setFromProgress(process.getProgress());
             r.setToProgress(pTo);
-            process.setProgress(pTo);
             process.setLastReportedAt(now);
         } else {
             // 직접 입력: 현장 전체 진행률(보고 전 → 후)
@@ -354,6 +373,8 @@ public class ReportService {
             r.setToProgress(Math.round(to * 10) / 10.0);
         }
         r.setMemo(memo == null ? "" : memo.trim());
+        r.setRating(score);
+        r.getMaterialUsages().addAll(used);
         r.setWeather(log.weather());
         r.setWorkers(log.workers() != null && log.workers() > 0 ? log.workers() : null);
         r.setEquipment(log.equipment() == null ? "" : log.equipment().trim());
@@ -374,17 +395,23 @@ public class ReportService {
                     : PhotoMeta.parse(photoTakenAt != null && i < photoTakenAt.size() ? photoTakenAt.get(i) : null);
             String original = f.getOriginalFilename() == null || f.getOriginalFilename().isBlank()
                     ? "photo_" + i + ".jpg" : f.getOriginalFilename();
-            r.addPhoto(new ReportPhoto(files.save(f), original, f.getContentType(), f.getSize(),
-                    taken, meta.latitude(), meta.longitude()));
+            ReportPhoto photo = new ReportPhoto(files.save(f), original, f.getContentType(), f.getSize(),
+                    taken, meta.latitude(), meta.longitude());
+            photo.setPhase(phases.get(i));
+            r.addPhoto(photo);
         }
         docs.forEach(d -> r.addFile(files.saveDocument(d)));
         // 촬영 시각·위치 확인 결과를 제출할 때 저장(report_checks)
         ReportDtos.findChecks(r).forEach(c -> r.addCheck(c.type(), c.message()));
         reports.save(r);
+        // 바로 승인된 보고(본사 없는 현장의 총관리자 본인 보고)는 지금 진행률·자재 재고에 반영
+        if (r.isApproved()) {
+            applyApproved(r);
+        }
         notices.reportCreated(r);
-        // 응답의 전체 진행률: 직접 입력은 보고 값, 자동 계산은 공정을 바꾼 뒤 계산값
+        // 응답의 전체 진행률: 직접 입력은 보고 값, 자동 계산은 승인되면 될 값(그 공정만 바꿔서 계산)
         double[] overall = process != null
-                ? new double[] {current, Math.max(current, site.weightedProgress())}
+                ? new double[] {current, Math.max(current, weightedWith(site, process.getKey(), r.getToProgress()))}
                 : new double[] {r.getFromProgress(), r.getToProgress()};
         return ReportDto.of(r, overall, true, true, canReview(r, author));
     }
@@ -432,6 +459,10 @@ public class ReportService {
             throw ApiException.forbidden("현장 관리자나 본사 관계자만 검토할 수 있어요.");
         }
         r.addReview(viewer, next, text.isEmpty() ? null : text, Instant.now());
+        if (Report.APPROVED.equals(next)) {
+            // 승인한 순간부터 진행률이 오르고, 오늘 사용한 자재가 현장 재고에서 빠진다
+            applyApproved(r);
+        }
         notices.reportReviewed(r);
         return toDto(r, viewer, isLatest(r));
     }
@@ -445,16 +476,27 @@ public class ReportService {
         }
         Site site = r.getSite();
         String key = r.getProcessKey();
+        boolean approved = r.isApproved();
         Double processFrom = r.isProcessReport() ? r.getFromProgress() : null;
+        // 승인돼서 재고에서 뺀 자재는 다시 더한다
+        if (r.getMaterialsAppliedAt() != null) {
+            changeStock(site, r.getMaterialUsages(), +1);
+        }
         files.deleteAfterCommit(r.photoFiles(), r.getFiles());
         reports.delete(r);
         reports.flush();
 
-        // 자동 계산 현장은 보고한 공정의 진행률을 보고 전 값으로 되돌린다
-        // (직접 입력 현장의 전체 진행률은 '가장 최근 보고' 값이라 따로 되돌릴 것이 없다)
+        // 자동 계산 현장은 보고한 공정의 진행률을 되돌린다: 보고 전 값과 남은 승인 보고 중 큰 값
+        // (승인 전 보고는 진행률에 반영하지 않았으니 되돌릴 것이 없다.
+        //  직접 입력 현장의 전체 진행률은 '가장 최근 승인 보고' 값이라 따로 되돌릴 것이 없다)
         if (processFrom != null) {
             site.getProcesses().stream().filter(p -> p.getKey().equals(key)).findFirst().ifPresent(p -> {
-                p.setProgress(processFrom);
+                if (approved) {
+                    p.setProgress(reports.findBySiteIdOrderByCreatedAtDescIdDesc(site.getId()).stream()
+                            .filter(x -> key.equals(x.getProcessKey()) && x.isApproved())
+                            .mapToDouble(Report::getToProgress)
+                            .reduce(processFrom, Math::max));
+                }
                 p.setLastReportedAt(reports.findBySiteIdOrderByCreatedAtDescIdDesc(site.getId()).stream()
                         .filter(x -> key.equals(x.getProcessKey()))
                         .map(Report::getCreatedAt)
@@ -462,6 +504,108 @@ public class ReportService {
                         .orElse(null));
             });
         }
+    }
+
+    /** 보고가 승인됐을 때: 자동 계산 현장은 공정 진행률을 올리고, 오늘 사용한 자재를 현장 재고에서 뺀다(한 번만) */
+    private void applyApproved(Report r) {
+        Site site = r.getSite();
+        if (r.isProcessReport()) {
+            site.getProcesses().stream()
+                    .filter(p -> p.getKey().equals(r.getProcessKey()))
+                    .findFirst()
+                    .ifPresent(p -> p.setProgress(Math.max(p.getProgress(), r.getToProgress())));
+        }
+        if (r.getMaterialsAppliedAt() == null && !r.getMaterialUsages().isEmpty()) {
+            changeStock(site, r.getMaterialUsages(), -1);
+            r.setMaterialsAppliedAt(Instant.now());
+        }
+    }
+
+    /**
+     * 현장 자재 재고 바꾸기(sign -1: 사용한 만큼 빼기, +1: 되돌리기).
+     * 재고에 없는 자재는 건너뛰고, 0 아래로는 내려가지 않는다.
+     */
+    private static void changeStock(Site site, List<MaterialItem> items, int sign) {
+        Instant now = Instant.now();
+        for (MaterialItem used : items) {
+            site.getMaterials().stream()
+                    .filter(m -> m.sameAs(used.getName(), used.getUnit()))
+                    .findFirst()
+                    .ifPresent(m -> {
+                        m.setQuantity(Math.max(0, round3(m.getQuantity() + sign * used.getQuantity())));
+                        m.setUpdatedAt(now);
+                    });
+        }
+    }
+
+    private static double round3(double v) {
+        return Math.round(v * 1000) / 1000.0;
+    }
+
+    /** 공정 하나의 진행률만 value로 올렸을 때의 현장 전체 진행률 */
+    private static double weightedWith(Site site, String key, double value) {
+        Map<String, Double> weights = new HashMap<>();
+        Map<String, Double> state = new HashMap<>();
+        for (SiteProcess p : site.getProcesses()) {
+            weights.put(p.getKey(), p.getWeight());
+            state.put(p.getKey(), p.getKey().equals(key) ? Math.max(p.getProgress(), value) : p.getProgress());
+        }
+        return weighted(weights, state);
+    }
+
+    /** 사진 구분: before(작업 전) / after(작업 후). 값이 없으면 작업 후 */
+    private static String phase(String raw) {
+        return raw != null && ReportDtos.BEFORE.equalsIgnoreCase(raw.trim()) ? ReportDtos.BEFORE : ReportDtos.AFTER;
+    }
+
+    /** 오늘 작업 평점: 현장 관리자만, 0.5 ~ 5.0점(소수점 한 자리). 안 매기면 null */
+    private static Double rating(Site site, Long userId, Double raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!site.isOwner(userId)) {
+            throw ApiException.forbidden("평점은 현장 관리자만 매길 수 있어요.");
+        }
+        double v = Math.round(raw * 10) / 10.0;
+        if (!Double.isFinite(raw) || v < 0.5 || v > 5.0) {
+            throw ApiException.badRequest("평점은 0.5점부터 5.0점까지 매길 수 있어요.");
+        }
+        return v;
+    }
+
+    /** 오늘 사용한 자재: 이름·수량(0보다 큼)·단위. 같은 자재(이름·단위)가 여러 줄이면 합친다 */
+    private static List<MaterialItem> usages(List<MaterialUsageDto> raw) {
+        List<MaterialItem> out = new ArrayList<>();
+        if (raw == null) {
+            return out;
+        }
+        if (raw.size() > 50) {
+            throw ApiException.badRequest("사용한 자재는 50줄까지 쓸 수 있어요.");
+        }
+        Map<String, Integer> index = new HashMap<>();
+        for (MaterialUsageDto u : raw) {
+            String name = u.name() == null ? "" : u.name().trim();
+            String unit = u.unit() == null ? "" : u.unit().trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (name.length() > 100 || unit.length() > 30) {
+                throw ApiException.badRequest("자재 이름은 100자, 단위는 30자까지 쓸 수 있어요.");
+            }
+            if (!Double.isFinite(u.quantity()) || u.quantity() <= 0 || u.quantity() > 1e9) {
+                throw ApiException.badRequest("'" + name + "' 사용량을 0보다 크게 입력해 주세요.");
+            }
+            String key = SiteMaterial.key(name) + "|" + SiteMaterial.key(unit);
+            Integer at = index.get(key);
+            if (at == null) {
+                index.put(key, out.size());
+                out.add(new MaterialItem(name, round3(u.quantity()), unit));
+            } else {
+                MaterialItem prev = out.get(at);
+                out.set(at, new MaterialItem(prev.getName(), round3(prev.getQuantity() + u.quantity()), prev.getUnit()));
+            }
+        }
+        return out;
     }
 
     /** 보고를 제출한 위치(휴대폰 GPS). 없으면 NONE */

@@ -12,6 +12,12 @@ import ProgressModeEditor, {
   rowsFrom,
   toInput,
 } from '../components/ProgressModeEditor';
+import MaterialRowsEditor, {
+  COMMON_MATERIALS,
+  MaterialRow,
+  emptyMaterialRow,
+  itemsFromRows,
+} from '../components/MaterialRowsEditor';
 import { defaultProcessesFor } from '../data/workTypes';
 import { ScreenProps } from '../navigation';
 import { colors } from '../theme';
@@ -25,6 +31,10 @@ export default function CreateSiteScreen({
   const [workType, setWorkType] = useState('');
   const [mode, setMode] = useState<ProgressMode>('manual');
   const [rows, setRows] = useState<ProcessRow[]>([]);
+  // 지금 현장에 있는 자재 양(최고 책임자가 입력, 선택)
+  const [stockRows, setStockRows] = useState<MaterialRow[]>([
+    emptyMaterialRow(),
+  ]);
   const [loading, setLoading] = useState(false);
   const dialog = useDialog();
 
@@ -42,6 +52,11 @@ export default function CreateSiteScreen({
       dialog.toast(problem, 'error');
       return;
     }
+    const stock = itemsFromRows(stockRows, true);
+    if (stock.bad) {
+      dialog.toast(`${stock.bad}의 수량을 입력해 주세요`, 'error');
+      return;
+    }
     setLoading(true);
     try {
       const site = await createSite({
@@ -50,6 +65,7 @@ export default function CreateSiteScreen({
         workType,
         progressMode: mode,
         processes: mode === 'auto' ? toInput(rows) : undefined,
+        materials: stock.items,
       });
       // 만들자마자 코드 발급 화면으로(뒤로 가면 현장 목록)
       navigation.replace('SiteCode', {
@@ -110,6 +126,21 @@ export default function CreateSiteScreen({
         <Text style={styles.guide}>
           계산 방식은 나중에 현장 설정에서 바꿀 수 있어요.
         </Text>
+
+        <Text style={styles.label}>현장 자재 (선택)</Text>
+        <Text style={styles.stockGuide}>
+          지금 현장에 있는 자재와 양을 넣어 두면, 보고가 승인될 때마다 사용한
+          만큼 빠지고 남은 양을 볼 수 있어요.
+        </Text>
+        <MaterialRowsEditor
+          rows={stockRows}
+          onChange={setStockRows}
+          presets={COMMON_MATERIALS}
+          max={100}
+          onFull={() =>
+            dialog.toast('자재는 100가지까지 넣을 수 있어요', 'error')
+          }
+        />
       </ScrollView>
       <BottomBar>
         <Button
@@ -133,4 +164,17 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   guide: { fontSize: 13, color: colors.textSub, lineHeight: 19, marginTop: 4 },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 28,
+    marginBottom: 6,
+  },
+  stockGuide: {
+    fontSize: 13,
+    color: colors.textSub,
+    lineHeight: 19,
+    marginBottom: 12,
+  },
 });

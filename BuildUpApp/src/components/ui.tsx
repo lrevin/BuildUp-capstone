@@ -40,6 +40,9 @@ export function Button({
   const light = variant === 'dark';
   return (
     <Pressable
+      // 안드로이드: 꺼져 있다가(disabled) 켜진 버튼은 글씨 부분만 눌리는 문제가 있어서,
+      // 켜짐/꺼짐이 바뀔 때 버튼을 새로 만든다(버튼 전체가 눌리게)
+      key={off ? 'off' : 'on'}
       onPress={onPress}
       disabled={off}
       style={({ pressed }) => [

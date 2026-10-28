@@ -1,6 +1,6 @@
 // 폰 저장소: 로그인 유지, 더미 DB 저장, 보고 작성 임시저장, 본사의 보고 확인 시각
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
-import { PickedFile, User, WorkLog } from '../types';
+import { PhotoPhase, PickedFile, User, WorkLog } from '../types';
 import { DummyState, dummyState } from './dummy';
 
 const store = createAsyncStorage('buildup');
@@ -92,6 +92,9 @@ export interface ReportDraft {
   value: number; // 입력 중인 현장 전체 진행률
   memo: string;
   photoUris: string[];
+  photoPhases?: PhotoPhase[]; // 사진마다 작업 전 / 작업 후(없으면 작업 후)
+  rating?: number | null; // 현장 관리자의 오늘 작업 평점
+  materials?: { name: string; qty: string; unit: string }[]; // 오늘 사용한 자재(입력 중)
   files?: PickedFile[];
   workLog?: WorkLog;
   savedAt: string;

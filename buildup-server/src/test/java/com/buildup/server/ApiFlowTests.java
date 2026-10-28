@@ -535,6 +535,10 @@ class ApiFlowTests {
         Res ok = sendForm(admin, id, Map.of("work", "타일 철거", "to", "15"));
         assertThat(ok.status()).isEqualTo(200);
         assertThat(ok.body().get("work")).isEqualTo("타일 철거");
+        // 승인 전에는 현장 진행률에 반영하지 않는다
+        assertThat(((Number) send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).doubleValue())
+                .isEqualTo(0.0);
+        approve(ok.body().get("id"));
         assertThat(sendForm(admin, id, Map.of("work", "방수", "to", "10")).status()).isEqualTo(400);
         assertThat(((Number) send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).doubleValue())
                 .isEqualTo(15.0);
@@ -550,8 +554,12 @@ class ApiFlowTests {
         Map<String, Object> site = send("GET", "/api/sites/" + firstSiteId(admin), admin, null).body();
         assertThat(site.get("workType")).isEqualTo("건축 신축 공사");
         double overall = ((Number) site.get("overallProgress")).doubleValue();
-        Map<String, Object> latest = items(send("GET", "/api/sites/" + site.get("id") + "/reports/page?size=1", admin, null)).get(0);
-        // 공정 보고를 처음부터 따라가 계산한 '가장 최근 보고 뒤 전체 진행률' = 현장 진행률
+        Map<String, Object> latest = items(send("GET", "/api/sites/" + site.get("id") + "/reports/page?size=50", admin, null))
+                .stream()
+                .filter(r -> "approved".equals(((Map<?, ?>) r.get("review")).get("status")))
+                .findFirst()
+                .orElseThrow();
+        // 공정 보고를 처음부터 따라가 계산한 '가장 최근 승인된 보고 뒤 전체 진행률' = 현장 진행률(대기 보고는 반영 안 함)
         assertThat(((Number) latest.get("to")).doubleValue()).isEqualTo(overall);
         assertThat(latest.get("work").toString()).isNotBlank();
     }
@@ -645,12 +653,17 @@ class ApiFlowTests {
         // 철거 100% 보고 → 전체 20%, 목공 50% 보고 → 전체 45%
         String demolish = procs.get(0).get("key").toString();
         String wood = procs.get(1).get("key").toString();
-        assertThat(sendForm(admin, id, Map.of("processKey", demolish, "processTo", "100")).status()).isEqualTo(200);
+        Res first = sendForm(admin, id, Map.of("processKey", demolish, "processTo", "100"));
+        assertThat(first.status()).isEqualTo(200);
+        assertThat(send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).isEqualTo(0.0);
+        approve(first.body().get("id"));
         Res second = sendForm(admin, id, Map.of("processKey", wood, "processTo", "50", "work", "거실 몰딩"));
         assertThat(second.status()).isEqualTo(200);
         assertThat(second.body().get("from")).isEqualTo(20.0);
         assertThat(second.body().get("to")).isEqualTo(45.0);
         assertThat(second.body().get("processTo")).isEqualTo(50.0);
+        assertThat(send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).isEqualTo(20.0);
+        approve(second.body().get("id"));
         assertThat(send("GET", "/api/sites/" + id, admin, null).body().get("overallProgress")).isEqualTo(45.0);
         // 공정 진행률은 낮출 수 없다
         assertThat(sendForm(admin, id, Map.of("processKey", wood, "processTo", "40")).status()).isEqualTo(400);
@@ -663,7 +676,9 @@ class ApiFlowTests {
         Res manual = send("PUT", "/api/sites/" + id + "/progress-mode", admin, Map.of("mode", "manual"));
         assertThat(manual.body().get("progressMode")).isEqualTo("manual");
         assertThat(manual.body().get("overallProgress")).isEqualTo(20.0);
-        assertThat(sendForm(admin, id, Map.of("work", "도배", "to", "35")).status()).isEqualTo(200);
+        Res wall = sendForm(admin, id, Map.of("work", "도배", "to", "35"));
+        assertThat(wall.status()).isEqualTo(200);
+        approve(wall.body().get("id"));
 
         // 다시 자동으로 바꾸면 모든 공정이 35%에서 시작
         Res auto = send("PUT", "/api/sites/" + id + "/progress-mode", admin, Map.of("mode", "auto",
@@ -709,9 +724,6 @@ class ApiFlowTests {
         Res login = send("POST", "/api/auth/login", null, Map.of("email", "bye@test.kr", "password", "password123"));
         assertThat(login.status()).isEqualTo(403);
         assertThat(login.body().get("message").toString()).contains("탈퇴");
-        Res again = send("POST", "/api/auth/email/send", null, Map.of("email", "bye@test.kr"));
-        assertThat(again.status()).isEqualTo(409);
-        assertThat(again.body().get("message").toString()).contains("7일 뒤");
 
         // 7일이 지나기 전에는 그대로
         deletion.purgeWithdrawnBefore(Instant.now().minus(AccountDeletion.GRACE));
@@ -735,6 +747,104 @@ class ApiFlowTests {
         assertThat(users.findById(id2)).isEmpty();
         // 같은 이메일로 다시 가입할 수 있다
         assertThat(send("POST", "/api/auth/email/send", null, Map.of("email", "bye@test.kr")).status()).isEqualTo(200);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 탈퇴_7일_안에_다시_가입하면_원래_계정과_현장이_복구된다() throws Exception {
+        Res su = send("POST", "/api/auth/signup", null, verified(Map.of("name", "복구시험", "email", "back@test.kr",
+                "phone", "010-7777-3333", "password", "password123", "role", "admin")));
+        assertThat(su.status()).as(String.valueOf(su.body())).isEqualTo(200);
+        String t = su.body().get("accessToken").toString();
+        String id = ((Map<String, Object>) su.body().get("user")).get("id").toString();
+        String mySite = send("POST", "/api/sites", t, Map.of("name", "복구 시험 현장", "address", "원주시",
+                "workType", "욕실 리모델링")).body().get("id").toString();
+        assertThat(send("DELETE", "/api/auth/me", t, null).status()).isEqualTo(200);
+
+        // 실수로 탈퇴 → 7일 안에 같은 이메일로 다시 가입: 새 계정이 아니라 원래 계정(이름·역할·현장)이 살아난다
+        Res back = send("POST", "/api/auth/signup", null, verified(Map.of("name", "다른이름", "email", "back@test.kr",
+                "phone", "010-7777-3333", "password", "newpassword1", "role", "worker")));
+        assertThat(back.status()).as(String.valueOf(back.body())).isEqualTo(200);
+        Map<String, Object> user = (Map<String, Object>) back.body().get("user");
+        assertThat(user.get("id").toString()).isEqualTo(id);
+        assertThat(user.get("name")).isEqualTo("복구시험");
+        assertThat(user.get("role")).isEqualTo("admin");
+        String t2 = back.body().get("accessToken").toString();
+        assertThat(send("GET", "/api/sites/" + mySite, t2, null).status()).isEqualTo(200);
+        // 새 비밀번호로 로그인되고, 7일이 지나도 지워지지 않는다
+        assertThat(send("POST", "/api/auth/login", null, Map.of("email", "back@test.kr", "password", "newpassword1"))
+                .status()).isEqualTo(200);
+        deletion.purgeWithdrawnBefore(Instant.now().plusSeconds(1));
+        assertThat(users.findById(Long.valueOf(id))).isPresent();
+        send("DELETE", "/api/sites/" + mySite, t2, null);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 승인해야_진행률과_자재_재고에_반영되고_평점과_사진_구분을_저장한다() throws Exception {
+        // 최고 책임자가 현장을 만들 때 지금 있는 자재 양을 넣는다
+        Res made = send("POST", "/api/sites", admin, Map.of("name", "재고 시험 현장", "address", "원주",
+                "workType", "욕실 리모델링",
+                "materials", List.of(Map.of("name", "타일", "quantity", 100, "unit", "장"),
+                        Map.of("name", "시멘트", "quantity", 20, "unit", "포"))));
+        assertThat(made.status()).as(String.valueOf(made.body())).isEqualTo(200);
+        String id = made.body().get("id").toString();
+        assertThat((List<?>) made.body().get("materials")).hasSize(2);
+        assertThat(send("POST", "/api/sites/join", worker, Map.of("code", made.body().get("code"))).status())
+                .isEqualTo(200);
+
+        // 작업자 보고: 오늘 쓴 자재 + 작업 전/후 사진 구분. 평점은 현장 관리자만
+        Map<String, String> form = new java.util.LinkedHashMap<>(Map.of("work", "벽 타일 시공", "to", "30",
+                "materials", "[{\"name\":\"타일\",\"quantity\":30,\"unit\":\"장\"},"
+                        + "{\"name\":\" 타일 \",\"quantity\":5,\"unit\":\"장\"}]"));
+        assertThat(sendForm(worker, id, Map.of("work", "x", "to", "10", "rating", "4.5")).status()).isEqualTo(403);
+        Res rep = sendForm(worker, id, form);
+        assertThat(rep.status()).as(String.valueOf(rep.body())).isEqualTo(200);
+        assertThat((List<?>) rep.body().get("materialUsages")).hasSize(1); // 같은 자재는 합친다(35장)
+
+        // 승인 전: 진행률·재고 그대로
+        Map<String, Object> before = send("GET", "/api/sites/" + id, admin, null).body();
+        assertThat(((Number) before.get("overallProgress")).doubleValue()).isEqualTo(0.0);
+        assertThat(qty(before, "타일")).isEqualTo(100.0);
+
+        // 현장 총관리자가 승인한 순간 진행률이 오르고 사용한 자재가 재고에서 빠진다
+        assertThat(send("PATCH", "/api/reports/" + rep.body().get("id") + "/review", admin,
+                Map.of("status", "approved")).status()).isEqualTo(200);
+        Map<String, Object> after = send("GET", "/api/sites/" + id, admin, null).body();
+        assertThat(((Number) after.get("overallProgress")).doubleValue()).isEqualTo(30.0);
+        assertThat(qty(after, "타일")).isEqualTo(65.0);
+        assertThat(qty(after, "시멘트")).isEqualTo(20.0);
+
+        // 현장 관리자 평점(0.5~5.0, 소수점 한 자리)
+        assertThat(sendForm(admin, id, Map.of("work", "y", "to", "40", "rating", "5.5")).status()).isEqualTo(400);
+        Res rated = sendForm(admin, id, Map.of("work", "마무리 점검", "to", "40", "rating", "4.3"));
+        assertThat(rated.status()).isEqualTo(200);
+        assertThat(((Number) rated.body().get("rating")).doubleValue()).isEqualTo(4.3);
+
+        // 재고 수정(최고 책임자만)
+        assertThat(send("PUT", "/api/sites/" + id + "/materials", worker,
+                Map.of("materials", List.of())).status()).isEqualTo(403);
+        Res edited = send("PUT", "/api/sites/" + id + "/materials", admin,
+                Map.of("materials", List.of(Map.of("name", "타일", "quantity", 200, "unit", "장"))));
+        assertThat(edited.status()).isEqualTo(200);
+        assertThat(qty(edited.body(), "타일")).isEqualTo(200.0);
+        assertThat((List<?>) edited.body().get("materials")).hasSize(1);
+        send("DELETE", "/api/sites/" + id, admin, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static double qty(Map<String, Object> site, String name) {
+        return ((List<Map<String, Object>>) site.get("materials")).stream()
+                .filter(m -> name.equals(m.get("name")))
+                .mapToDouble(m -> ((Number) m.get("quantity")).doubleValue())
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /** 본사 관리자가 보고 승인(관리자가 만든 시험 현장은 데모 본사에 연결된다) */
+    private void approve(Object reportId) throws Exception {
+        Res r = send("PATCH", "/api/reports/" + reportId + "/review", hq, Map.of("status", "approved"));
+        assertThat(r.status()).as(String.valueOf(r.body())).isEqualTo(200);
     }
 
     @Test

@@ -28,7 +28,11 @@ public final class SiteDtos {
             Double latitude,
             Double longitude,
             String progressMode,
-            List<ProcessDto> processes) {}
+            List<ProcessDto> processes,
+            List<SiteMaterialDto> materials) {}
+
+    /** 현장 자재 재고 한 줄: 남은 양 */
+    public record SiteMaterialDto(String name, double quantity, String unit, String updatedAt) {}
 
     /** 공정: weight는 가중치(%), progress는 공정별 진행률(%) */
     public record ProcessDto(String key, String name, double weight, double progress, String lastReportedAt) {}
@@ -75,7 +79,14 @@ public final class SiteDtos {
             String address,
             @Size(max = 50, message = "공사 종류는 50자까지 쓸 수 있어요.") String workType,
             String progressMode,
-            List<ProcessInput> processes) {}
+            List<ProcessInput> processes,
+            List<MaterialInput> materials) {}
+
+    /** 현장 자재 입력: 이름 · 지금 있는 양 · 단위 */
+    public record MaterialInput(String name, Double quantity, String unit) {}
+
+    /** 현장 자재 재고 바꾸기(최고 책임자): { materials: [...] } 목록 전체를 이 값으로 */
+    public record MaterialsRequest(List<MaterialInput> materials) {}
 
     /** 공정 입력: key가 없으면 새 공정. weight는 가중치(%) */
     public record ProcessInput(String key, String name, Double weight) {}

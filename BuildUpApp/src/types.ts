@@ -106,6 +106,15 @@ export interface Site {
   longitude?: number | null;
   progressMode?: ProgressMode; // 없으면 직접 입력
   processes?: SiteProcess[]; // 자동 계산 방식의 공정
+  materials?: SiteMaterial[]; // 현장 자재 재고(남은 양). 승인된 보고에서 쓴 만큼 줄어든다
+}
+
+// 현장 자재 재고 한 줄
+export interface SiteMaterial {
+  name: string;
+  quantity: number; // 남은 양
+  unit: string;
+  updatedAt: string | null;
 }
 
 // 현장 목록에 보이는 요약 정보
@@ -158,6 +167,7 @@ export interface CreateSiteInput {
   workType: string; // 목록에서 고르거나 직접 입력
   progressMode?: ProgressMode;
   processes?: ProcessInput[]; // 자동 계산이면 공정·가중치(합 100)
+  materials?: MaterialItem[]; // 지금 현장에 있는 자재 양(최고 책임자가 입력, 선택)
 }
 
 // 보고에 첨부한 문서(엑셀·PDF 등)
@@ -205,6 +215,10 @@ export interface Report {
   review?: Review;
   /** 촬영 시각·위치로 찾은 의심스러운 점(오래된 사진, 현장 밖 제출 등) */
   checks?: ReportCheck[];
+  /** 현장 관리자가 매긴 오늘 작업 평점(0.5~5.0). 없으면 null */
+  rating?: number | null;
+  /** 오늘 사용한 자재(승인되면 현장 재고에서 빠진다) */
+  materialUsages?: MaterialItem[];
   // 서버가 로그인한 사용자 기준으로 계산해서 내려주는 권한
   canEdit: boolean; // 작성자 본인
   canDelete: boolean; // (작성자 또는 현장 관리자) + 그 공정의 가장 최근 보고
@@ -233,7 +247,11 @@ export interface PhotoInfo {
   takenAt: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** 작업 전 / 작업 후(예전 보고는 구분 없음) */
+  phase?: PhotoPhase | null;
 }
+
+export type PhotoPhase = 'before' | 'after';
 
 export interface ReportCheck {
   type: 'old_photo' | 'far_submit' | 'far_photo' | 'no_location';
@@ -249,6 +267,12 @@ export interface NewReport {
   photoUris: string[];
   /** 사진마다 촬영 시각(ISO). 모르면 null */
   photoTakenAt?: (string | null)[];
+  /** 사진마다 작업 전 / 작업 후 */
+  photoPhases?: PhotoPhase[];
+  /** 현장 관리자의 오늘 작업 평점(0.5~5.0, 안 매기면 null) */
+  rating?: number | null;
+  /** 오늘 사용한 자재 */
+  materials?: MaterialItem[];
   /** 제출 위치(위치 권한을 안 주면 null) */
   location?: GeoPoint | null;
   files: PickedFile[];

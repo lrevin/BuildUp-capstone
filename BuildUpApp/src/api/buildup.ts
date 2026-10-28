@@ -16,6 +16,7 @@ import {
   HqInfo,
   KakaoSignup,
   ManagerInput,
+  MaterialItem,
   MaterialRequest,
   MaterialStatus,
   Member,
@@ -375,6 +376,20 @@ export async function createSite(input: CreateSiteInput): Promise<Site> {
   return (await api.post<Site>('/sites', input)).data;
 }
 
+// 최고 책임자: 현장 자재 재고 바꾸기(목록 전체를 이 값으로)
+export async function setSiteMaterials(
+  siteId: string,
+  materials: MaterialItem[],
+): Promise<Site> {
+  if (config.useDummy) {
+    return dummyWrite(() =>
+      dummyDb.setSiteMaterials(requireUserId(), siteId, materials),
+    );
+  }
+  return (await api.put<Site>(`/sites/${siteId}/materials`, { materials }))
+    .data;
+}
+
 // 총관리자: 현장 정보 수정
 export async function updateSite(
   siteId: string,
@@ -548,6 +563,17 @@ export async function submitReport(input: NewReport): Promise<Report> {
   input.photoUris.forEach((_, i) =>
     form.append('photoTakenAt', input.photoTakenAt?.[i] ?? ''),
   );
+  // 사진마다 작업 전(before) / 작업 후(after)
+  input.photoUris.forEach((_, i) =>
+    form.append('photoPhases', input.photoPhases?.[i] ?? 'after'),
+  );
+  // 현장 관리자의 오늘 작업 평점, 오늘 사용한 자재
+  if (input.rating != null) {
+    form.append('rating', String(input.rating));
+  }
+  if (input.materials && input.materials.length > 0) {
+    form.append('materials', JSON.stringify(input.materials));
+  }
   // 제출 위치
   if (input.location) {
     form.append('latitude', String(input.location.latitude));

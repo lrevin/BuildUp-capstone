@@ -2,6 +2,7 @@ package com.buildup.server.report;
 
 import com.buildup.server.auth.CurrentUser;
 import com.buildup.server.common.ApiException;
+import com.buildup.server.report.ReportDtos.MaterialUsageDto;
 import com.buildup.server.report.ReportDtos.MemoRequest;
 import com.buildup.server.report.ReportDtos.ReportDto;
 import com.buildup.server.report.ReportDtos.ReportPageDto;
@@ -59,6 +60,8 @@ public class ReportController {
     /**
      * 앱은 multipart/form-data로 보낸다: work(진행한 작업), memo, workLog(JSON 문자열), photos(여러 장), files(첨부 문서)
      * 직접 입력 현장: to(현장 전체 진행률) / 자동 계산 현장: processKey(보고할 공정) + processTo(그 공정의 진행률)
+     * photoPhases: 사진마다 before(작업 전) | after(작업 후), rating: 현장 관리자의 오늘 작업 평점(0.5~5.0),
+     * materials: 오늘 사용한 자재 JSON 문자열 [{ name, quantity, unit }]
      */
     @Operation(summary = "보고 제출(multipart): work, memo, photos, files + 직접 입력이면 to, 자동 계산이면 processKey·processTo")
     @PostMapping(value = "/api/sites/{siteId}/reports", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -75,10 +78,14 @@ public class ReportController {
             @RequestParam(required = false) Double latitude,
             @RequestParam(required = false) Double longitude,
             @RequestParam(required = false) Double accuracy,
-            @RequestParam(required = false) List<String> photoTakenAt) {
+            @RequestParam(required = false) List<String> photoTakenAt,
+            @RequestParam(required = false) List<String> photoPhases,
+            @RequestParam(required = false) Double rating,
+            @RequestParam(required = false) String materials) {
         return service.create(
                 CurrentUser.id(), siteId, work, to, processKey, processTo, memo, parseWorkLog(workLog), photos, files,
-                new ReportService.SubmitPlace(latitude, longitude, accuracy), photoTakenAt);
+                new ReportService.SubmitPlace(latitude, longitude, accuracy), photoTakenAt, photoPhases, rating,
+                parseMaterials(materials));
     }
 
     /** 본사 관계자·현장 총관리자: { status: approved | revision, comment } */
@@ -99,6 +106,17 @@ public class ReportController {
     public Map<String, Boolean> delete(@PathVariable Long reportId) {
         service.delete(CurrentUser.id(), reportId);
         return Map.of("ok", true);
+    }
+
+    private List<MaterialUsageDto> parseMaterials(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        try {
+            return List.of(json.readValue(raw, MaterialUsageDto[].class));
+        } catch (Exception e) {
+            throw ApiException.badRequest("사용한 자재 형식이 올바르지 않습니다.");
+        }
     }
 
     private WorkLogDto parseWorkLog(String raw) {

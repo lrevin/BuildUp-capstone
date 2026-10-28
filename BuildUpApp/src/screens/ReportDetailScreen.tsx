@@ -23,6 +23,7 @@ import { WEATHER_META } from '../components/WorkLog';
 import { WorkTagList } from '../components/WorkTags';
 import { ReviewCard } from '../components/Review';
 import { fileSize } from './ReportScreen';
+import { formatQty } from '../components/Material';
 
 function InfoRow({
   label,
@@ -128,6 +129,21 @@ export default function ReportDetailScreen({
   const diff = report.to - report.from;
   // 카드 안쪽 폭을 3칸으로 나눈 정사각형 썸네일
   const cell = (width - 20 * 2 - 20 * 2 - GRID_GAP * 2) / 3;
+  // 사진 묶음: 작업 전 / 작업 후로 나눠 올린 보고는 두 묶음, 예전 보고(구분 없음)는 한 묶음
+  const indexes = report.photoUris.map((_, i) => i);
+  const phased = report.photos?.some(p => p.phase) ?? false;
+  const photoGroups: { label: string | null; indexes: number[] }[] = phased
+    ? [
+        {
+          label: '작업 전',
+          indexes: indexes.filter(i => report.photos?.[i]?.phase === 'before'),
+        },
+        {
+          label: '작업 후',
+          indexes: indexes.filter(i => report.photos?.[i]?.phase !== 'before'),
+        },
+      ]
+    : [{ label: null, indexes }];
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior="padding">
@@ -212,6 +228,12 @@ export default function ReportDetailScreen({
           ) : null}
           {report.workLog.equipment ? (
             <InfoRow label="장비" value={report.workLog.equipment} />
+          ) : null}
+          {report.rating != null ? (
+            <InfoRow
+              label="오늘 작업 평점"
+              value={`★ ${report.rating.toFixed(1)}점 / 5.0`}
+            />
           ) : null}
           <Pressable
             disabled={!report.location}
@@ -298,33 +320,77 @@ export default function ReportDetailScreen({
           )}
         </Card>
 
+        {report.materialUsages?.length ? (
+          <Card style={styles.gap}>
+            <Text style={styles.cardTitle}>
+              사용한 자재{' '}
+              <Text style={styles.count}>{report.materialUsages.length}</Text>
+            </Text>
+            {report.materialUsages.map((m, i) => (
+              <InfoRow
+                key={`${m.name}|${m.unit}`}
+                label={m.name}
+                value={`${formatQty(m.quantity)}${m.unit}`}
+                last={i === report.materialUsages!.length - 1}
+              />
+            ))}
+            <Text style={styles.usageNote}>
+              {report.review?.status === 'approved'
+                ? '승인돼서 현장 자재에서 뺐어요.'
+                : '승인되면 현장 자재에서 빠져요.'}
+            </Text>
+          </Card>
+        ) : null}
+
         <Card style={styles.gap}>
           <Text style={styles.cardTitle}>
             현장 사진{' '}
             <Text style={styles.count}>{report.photoUris.length}</Text>
           </Text>
           {report.photoUris.length > 0 ? (
-            <View style={styles.grid}>
-              {report.photoUris.map((uri, i) => {
-                const taken = report.photos?.[i]?.takenAt;
-                return (
-                  <Pressable key={uri} onPress={() => setViewing(i)}>
-                    <Image
-                      source={{ uri }}
-                      style={[styles.photo, { width: cell, height: cell }]}
-                    />
-                    {/* 촬영 시각(사진에 기록된 값) */}
-                    {taken ? (
-                      <View style={[styles.takenBar, { width: cell }]}>
-                        <Text style={styles.takenText} numberOfLines={1}>
-                          {shortTime(taken)}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </View>
+            // 작업 전 / 작업 후로 나눠 올린 보고는 나눠서, 예전 보고는 한꺼번에
+            photoGroups.map(g => (
+              <View
+                key={g.label ?? 'all'}
+                style={g.label ? styles.phaseGroup : undefined}
+              >
+                {g.label ? (
+                  <Text style={styles.phaseLabel}>
+                    {g.label}{' '}
+                    <Text style={styles.count}>{g.indexes.length}</Text>
+                  </Text>
+                ) : null}
+                {g.indexes.length === 0 ? (
+                  <Text style={styles.empty}>사진이 없어요.</Text>
+                ) : (
+                  <View style={styles.grid}>
+                    {g.indexes.map(i => {
+                      const uri = report.photoUris[i];
+                      const taken = report.photos?.[i]?.takenAt;
+                      return (
+                        <Pressable key={uri} onPress={() => setViewing(i)}>
+                          <Image
+                            source={{ uri }}
+                            style={[
+                              styles.photo,
+                              { width: cell, height: cell },
+                            ]}
+                          />
+                          {/* 촬영 시각(사진에 기록된 값) */}
+                          {taken ? (
+                            <View style={[styles.takenBar, { width: cell }]}>
+                              <Text style={styles.takenText} numberOfLines={1}>
+                                {shortTime(taken)}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            ))
           ) : (
             <View style={styles.noPhoto}>
               <ImageOff size={20} color={colors.textMuted} />
@@ -391,6 +457,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   takenText: { fontSize: 10, color: '#fff', fontWeight: '600' },
+  phaseGroup: { marginBottom: 14 },
+  phaseLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSub,
+    marginBottom: 8,
+  },
+  usageNote: { fontSize: 12, color: colors.textMuted, marginTop: 10 },
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   author: { fontSize: 16, fontWeight: '700', color: colors.text },
   date: { fontSize: 13, color: colors.textMuted, marginTop: 2 },

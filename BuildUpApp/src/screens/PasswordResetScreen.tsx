@@ -1,5 +1,5 @@
-// 비밀번호 찾기: 가입한 이메일로 받은 코드를 확인하고 새 비밀번호를 정한다
-// 로그인 화면("비밀번호를 잊으셨나요?")과 내 정보 두 곳에서 연다
+// 비밀번호 찾기 / 변경: 가입한 이메일로 받은 코드를 확인하고 새 비밀번호를 정한다
+// 로그인 화면("비밀번호를 잊으셨나요?")에서 열면 '비밀번호 찾기', 로그인 후 내 정보에서 열면 '비밀번호 변경'
 import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -79,7 +79,10 @@ export default function PasswordResetScreen({
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior="padding">
-      <AppHeader title="비밀번호 찾기" onBack={() => navigation.goBack()} />
+      <AppHeader
+        title={user ? '비밀번호 변경' : '비밀번호 찾기'}
+        onBack={() => navigation.goBack()}
+      />
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"

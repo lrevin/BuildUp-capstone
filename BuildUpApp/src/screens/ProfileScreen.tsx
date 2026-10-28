@@ -163,7 +163,7 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
           style={styles.connection}
           onPress={() => navigation.navigate('PasswordReset')}
         >
-          <Text style={styles.managerText}>비밀번호 찾기</Text>
+          <Text style={styles.managerText}>비밀번호 변경</Text>
           <Text style={styles.managerDesc}>이메일 인증 후 새로 정하기</Text>
           <ChevronRight size={18} color={colors.textMuted} />
         </Pressable>

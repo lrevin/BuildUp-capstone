@@ -11,15 +11,19 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Package } from 'lucide-react-native';
-import { fetchMaterials } from '../api/buildup';
+import { fetchMaterials, fetchSite } from '../api/buildup';
 import { useUser } from '../auth';
-import { MATERIAL_STATUS_META, MaterialCard } from '../components/Material';
+import {
+  MATERIAL_STATUS_META,
+  MaterialCard,
+  formatQty,
+} from '../components/Material';
 import { Text } from '../components/Text';
 import { AppHeader, BottomBar, Button } from '../components/ui';
 import { useMaterialActions } from '../components/useMaterialActions';
 import { ScreenProps } from '../navigation';
-import { colors } from '../theme';
-import { MaterialRequest, MaterialStatus } from '../types';
+import { colors, radius, shadow } from '../theme';
+import { MaterialRequest, MaterialStatus, Site } from '../types';
 
 type Filter = MaterialStatus | 'all';
 
@@ -54,8 +58,13 @@ export default function MaterialsScreen({
   const [filter, setFilter] = useState<Filter>('requested');
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // 현장 자재 재고(남은 양): 보고가 승인되면 사용한 만큼 줄어든다
+  const [site, setSite] = useState<Site | null>(null);
 
   const load = useCallback(async () => {
+    fetchSite(siteId)
+      .then(setSite)
+      .catch(() => {});
     try {
       setError(null);
       setList(await fetchMaterials(siteId));
@@ -91,6 +100,54 @@ export default function MaterialsScreen({
     list ? list.filter(m => matches(m, f)).length : 0;
   const todo = list ? list.filter(canAct).length : 0;
   const isHq = user.role === 'hq';
+  const isOwner = site?.ownerId === user.id;
+  const stock = site?.materials ?? [];
+
+  // 현장 자재 재고 카드(최고 책임자는 수정 가능)
+  const stockCard =
+    site && (stock.length > 0 || isOwner) ? (
+      <View style={styles.stock}>
+        <View style={styles.stockHead}>
+          <Text style={styles.stockTitle}>현장 자재 (남은 양)</Text>
+          {isOwner ? (
+            <Pressable
+              hitSlop={8}
+              onPress={() =>
+                navigation.navigate('SiteStock', { siteId, siteName })
+              }
+            >
+              <Text style={styles.stockEdit}>
+                {stock.length > 0 ? '수정' : '자재 넣기'}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {stock.length === 0 ? (
+          <Text style={styles.stockEmpty}>
+            지금 현장에 있는 자재를 넣어 두면 남은 양을 볼 수 있어요.
+          </Text>
+        ) : (
+          stock.map(m => (
+            <View key={`${m.name}|${m.unit}`} style={styles.stockRow}>
+              <Text style={styles.stockName} numberOfLines={1}>
+                {m.name}
+              </Text>
+              <Text
+                style={[styles.stockQty, m.quantity <= 0 && styles.stockOut]}
+              >
+                {formatQty(m.quantity)}
+                {m.unit}
+              </Text>
+            </View>
+          ))
+        )}
+        {stock.length > 0 ? (
+          <Text style={styles.stockHint}>
+            보고가 승인되면 사용한 양만큼 자동으로 빠져요.
+          </Text>
+        ) : null}
+      </View>
+    ) : null;
 
   return (
     <View style={styles.root}>
@@ -143,13 +200,16 @@ export default function MaterialsScreen({
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
           ListHeaderComponent={
-            todo > 0 ? (
-              <View style={styles.banner}>
-                <Text style={styles.bannerText}>
-                  내가 처리할 요청이 {todo}건 있어요
-                </Text>
-              </View>
-            ) : undefined
+            <>
+              {stockCard}
+              {todo > 0 ? (
+                <View style={styles.banner}>
+                  <Text style={styles.bannerText}>
+                    내가 처리할 요청이 {todo}건 있어요
+                  </Text>
+                </View>
+              ) : null}
+            </>
           }
           renderItem={({ item }) => (
             <MaterialCard
@@ -222,5 +282,34 @@ const styles = StyleSheet.create({
   },
   bannerText: { fontSize: 13, fontWeight: '600', color: '#8A5E00' },
   empty: { alignItems: 'center', marginTop: 64, gap: 12 },
+  stock: {
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: 20,
+    marginBottom: 12,
+    ...shadow,
+  },
+  stockHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  stockTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+  stockEdit: { fontSize: 14, fontWeight: '600', color: colors.textSub },
+  stockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+    gap: 12,
+  },
+  stockName: { flex: 1, fontSize: 15, color: colors.text },
+  stockQty: { fontSize: 15, fontWeight: '700', color: colors.text },
+  stockOut: { color: colors.danger },
+  stockEmpty: { fontSize: 13, color: colors.textSub, lineHeight: 19 },
+  stockHint: { fontSize: 12, color: colors.textMuted, marginTop: 8 },
   emptyText: { fontSize: 14, color: colors.textSub },
 });

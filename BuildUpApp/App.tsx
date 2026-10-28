@@ -23,6 +23,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import ManagerSetupScreen from './src/screens/ManagerSetupScreen';
 import MaterialRequestScreen from './src/screens/MaterialRequestScreen';
 import MaterialsScreen from './src/screens/MaterialsScreen';
+import SiteStockScreen from './src/screens/SiteStockScreen';
 import MembersScreen from './src/screens/MembersScreen';
 import PasswordResetScreen from './src/screens/PasswordResetScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -110,6 +111,7 @@ function RootNavigator() {
           <Stack.Screen name="ReportDetail" component={ReportDetailScreen} />
           <Stack.Screen name="Members" component={MembersScreen} />
           <Stack.Screen name="Materials" component={MaterialsScreen} />
+          <Stack.Screen name="SiteStock" component={SiteStockScreen} />
           <Stack.Screen name="ManagerSetup" component={ManagerSetupScreen} />
           <Stack.Screen
             name="MaterialRequest"

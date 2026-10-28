@@ -38,6 +38,7 @@ import {
   Minus,
   Package,
   Plus,
+  Star,
   Users,
   X,
 } from 'lucide-react-native';
@@ -60,10 +61,15 @@ import {
   Card,
   IconButton,
 } from '../components/ui';
-import { MAX_PHOTOS } from '../data/dummy';
+import MaterialRowsEditor, {
+  MaterialRow,
+  emptyMaterialRow,
+  itemsFromRows,
+} from '../components/MaterialRowsEditor';
+import { formatQty } from '../components/Material';
 import { ScreenProps } from '../navigation';
 import { colors, radius } from '../theme';
-import { MaterialRequest, PickedFile, Site } from '../types';
+import { MaterialRequest, PhotoPhase, PickedFile, Site } from '../types';
 import { draftStore } from '../data/storage';
 import { formatDate, formatTime, isToday, pct } from '../utils/format';
 
@@ -96,6 +102,18 @@ export const fileSize = (bytes: number | null | undefined) =>
 const ICON = { size: 20, color: colors.text, strokeWidth: 2 };
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
+
+// 사진은 작업 전 / 작업 후로 나눠 올린다(장수 제한 없음)
+type PhotoPick = Asset & { phase: PhotoPhase };
+const PHASES: { phase: PhotoPhase; label: string }[] = [
+  { phase: 'before', label: '작업 전' },
+  { phase: 'after', label: '작업 후' },
+];
+
+// 오늘 작업 평점: 0.5 ~ 5.0점, 소수점 한 자리
+const RATING_MIN = 0.5;
+const RATING_MAX = 5;
+const STAR_SIZE = 32;
 
 // 공정 하나의 진행률을 바꿨을 때 현장 전체 진행률(가중치 반영)
 function weightedAfter(
@@ -140,7 +158,10 @@ export default function ReportScreen({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [photos, setPhotos] = useState<Asset[]>([]);
+  const [photos, setPhotos] = useState<PhotoPick[]>([]);
+  // 오늘 사용한 자재(승인되면 현장 재고에서 빠진다), 현장 관리자의 오늘 작업 평점
+  const [usedRows, setUsedRows] = useState<MaterialRow[]>([emptyMaterialRow()]);
+  const [rating, setRating] = useState<number | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
   const [materials, setMaterials] = useState<MaterialRequest[]>([]);
   // 임시저장: 처음 한 번 불러온 뒤부터 입력이 바뀔 때마다 저장
@@ -180,7 +201,18 @@ export default function ReportScreen({
           setWorks(splitWorks(draft.work));
           setWorkText(draft.workText ?? '');
           setMemo(draft.memo);
-          setPhotos(draft.photoUris.map(uri => ({ uri })));
+          setPhotos(
+            draft.photoUris.map((uri, i) => ({
+              uri,
+              phase: draft.photoPhases?.[i] ?? 'after',
+            })),
+          );
+          setRating(draft.rating ?? null);
+          if (draft.materials && draft.materials.length > 0) {
+            setUsedRows(
+              draft.materials.map(m => ({ ...emptyMaterialRow(), ...m })),
+            );
+          }
           setFiles(draft.files ?? []);
           setRestoredAt(draft.savedAt);
         }
@@ -238,7 +270,9 @@ export default function ReportScreen({
         !workText.trim() &&
         !memo.trim() &&
         photos.length === 0 &&
-        files.length === 0
+        files.length === 0 &&
+        rating === null &&
+        !usedRows.some(r => r.name.trim() || r.qty.trim())
       ) {
         draftStore.clear(user.id, siteId);
         return;
@@ -250,6 +284,11 @@ export default function ReportScreen({
         value,
         memo,
         photoUris: photos.map(p => p.uri!),
+        photoPhases: photos.map(p => p.phase),
+        rating,
+        materials: usedRows
+          .filter(r => r.name.trim() || r.qty.trim())
+          .map(({ name, qty, unit }) => ({ name, qty, unit })),
         files,
         savedAt: new Date().toISOString(),
       });
@@ -264,6 +303,8 @@ export default function ReportScreen({
     memo,
     photos,
     files,
+    rating,
+    usedRows,
     user.id,
     siteId,
   ]);
@@ -271,7 +312,7 @@ export default function ReportScreen({
   const discardDraft = async () => {
     const ok = await dialog.confirm({
       title: '새로 작성할까요?',
-      message: '작성 중이던 작업, 진행률, 사진, 첨부, 메모가 지워져요.',
+      message: '작성 중이던 작업, 진행률, 사진, 자재, 첨부, 메모가 지워져요.',
       confirmText: '지우기',
       danger: true,
     });
@@ -286,6 +327,8 @@ export default function ReportScreen({
     setWorkText('');
     setMemo('');
     setPhotos([]);
+    setUsedRows([emptyMaterialRow()]);
+    setRating(null);
     setFiles([]);
     setRestoredAt(null);
     draftStore.clear(user.id, siteId);
@@ -367,7 +410,7 @@ export default function ReportScreen({
     }, [load]),
   );
 
-  const addPhotos = (res: ImagePickerResponse) => {
+  const addPhotos = (res: ImagePickerResponse, phase: PhotoPhase) => {
     if (res.didCancel) {
       return;
     }
@@ -380,15 +423,16 @@ export default function ReportScreen({
       return;
     }
     const picked = (res.assets ?? []).filter(a => a.uri);
-    setPhotos(prev => [...prev, ...picked].slice(0, MAX_PHOTOS));
+    setPhotos(prev => [
+      ...prev,
+      ...picked
+        .filter(a => !prev.some(p => p.uri === a.uri))
+        .map(a => ({ ...a, phase })),
+    ]);
   };
 
-  const openPhotoMenu = async () => {
-    const remaining = MAX_PHOTOS - photos.length;
-    if (remaining <= 0) {
-      dialog.toast('사진은 최대 10장까지 올릴 수 있어요', 'error');
-      return;
-    }
+  const openPhotoMenu = async (phase: PhotoPhase) => {
+    const label = phase === 'before' ? '작업 전' : '작업 후';
     const options = {
       mediaType: 'photo' as const,
       quality: 0.7 as const,
@@ -397,8 +441,11 @@ export default function ReportScreen({
       includeExtra: true, // 원본 사진의 촬영 시각(timestamp)을 함께 받는다
     };
     const pick = await dialog.choose({
-      title: '현장 사진 추가',
-      message: `${remaining}장 더 추가할 수 있어요`,
+      title: `${label} 사진 추가`,
+      message:
+        phase === 'before'
+          ? '작업하기 전 현장 모습을 올려 주세요'
+          : '작업을 마친 뒤 모습을 올려 주세요',
       options: [
         {
           label: '카메라로 촬영',
@@ -408,7 +455,7 @@ export default function ReportScreen({
         },
         {
           label: '앨범에서 선택',
-          description: `최대 ${remaining}장까지 한 번에 고를 수 있어요`,
+          description: '여러 장을 한 번에 고를 수 있어요',
           icon: <Images {...ICON} />,
           value: 'library' as const,
         },
@@ -417,17 +464,21 @@ export default function ReportScreen({
     if (pick === 'camera') {
       // 카메라로 찍은 사진은 지금이 촬영 시각
       launchCamera({ ...options, saveToPhotos: false }).then(res =>
-        addPhotos({
-          ...res,
-          assets: res.assets?.map(a => ({
-            ...a,
-            timestamp: a.timestamp ?? new Date().toISOString(),
-          })),
-        }),
+        addPhotos(
+          {
+            ...res,
+            assets: res.assets?.map(a => ({
+              ...a,
+              timestamp: a.timestamp ?? new Date().toISOString(),
+            })),
+          },
+          phase,
+        ),
       );
     } else if (pick === 'library') {
-      launchImageLibrary({ ...options, selectionLimit: remaining }).then(
-        addPhotos,
+      // selectionLimit 0 = 개수 제한 없이 고르기
+      launchImageLibrary({ ...options, selectionLimit: 0 }).then(res =>
+        addPhotos(res, phase),
       );
     }
   };
@@ -537,9 +588,21 @@ export default function ReportScreen({
       dialog.toast('진행한 작업을 적어 주세요', 'error');
       return;
     }
+    if (usedBad) {
+      dialog.toast(`${usedBad}의 사용량을 입력해 주세요`, 'error');
+      return;
+    }
     setSheetOpen(true);
   };
   const work = joinWorks(works);
+  // 오늘 사용한 자재(이름이 있는 줄만)
+  const { items: usedItems, bad: usedBad } = itemsFromRows(usedRows);
+  // 현장 관리자만 평점을 매긴다
+  const isSiteOwner = site.ownerId === user.id;
+  const setRatingClamped = (v: number) =>
+    setRating(round1(Math.min(RATING_MAX, Math.max(RATING_MIN, v))));
+  // 별을 누르면 1점 단위, 같은 점수의 별을 한 번 더 누르면 0.5점 빼기
+  const tapStar = (n: number) => setRating(prev => (prev === n ? n - 0.5 : n));
   // 제출 확인 시트에 보이는 작업(자동 계산이면 공정 진행률 변화를 맨 앞에)
   const sheetWork = proc
     ? joinWorks([`${proc.name} ${pct(base)} → ${pct(today)}`, ...works])
@@ -554,7 +617,7 @@ export default function ReportScreen({
     try {
       // 제출 위치(휴대폰 GPS). 위치 권한을 안 주면 위치 없이 제출
       const place = await currentPlace();
-      await submitReport({
+      const created = await submitReport({
         siteId: site.id,
         work,
         to: today,
@@ -562,6 +625,9 @@ export default function ReportScreen({
         processTo: proc ? today : undefined,
         photoUris: photos.map(p => p.uri!),
         photoTakenAt: photos.map(p => p.timestamp ?? null),
+        photoPhases: photos.map(p => p.phase),
+        rating: isSiteOwner ? rating : null,
+        materials: usedItems,
         location: place,
         files,
         memo: memo.trim(),
@@ -573,19 +639,29 @@ export default function ReportScreen({
         : works.join(', ');
       const overallFrom = isAuto ? site.overallProgress : base;
       const now = new Date().toISOString();
-      setSite({
-        ...site,
-        overallProgress: overallAfter,
-        lastReportedAt: now,
-        processes: site.processes?.map(x =>
-          x.key === proc?.key
-            ? { ...x, progress: today, lastReportedAt: now }
-            : x,
-        ),
-      });
-      setValue(today);
-      lastBase.current = overallAfter;
-      lastProcBase.current = today;
+      // 진행률은 승인된 순간부터 오른다(바로 승인되는 보고만 화면에 바로 반영)
+      const approved =
+        created.review?.status !== 'pending' &&
+        created.review?.status !== 'revision';
+      if (approved) {
+        setSite({
+          ...site,
+          overallProgress: overallAfter,
+          lastReportedAt: now,
+          processes: site.processes?.map(x =>
+            x.key === proc?.key
+              ? { ...x, progress: today, lastReportedAt: now }
+              : x,
+          ),
+        });
+        setValue(today);
+        lastBase.current = overallAfter;
+        lastProcBase.current = today;
+      } else {
+        setSite({ ...site, lastReportedAt: now });
+      }
+      const submittedUsed = usedItems.length;
+      const submittedRating = isSiteOwner ? rating : null;
       fetchSite(site.id)
         .then(updated => {
           setSite(updated);
@@ -601,6 +677,8 @@ export default function ReportScreen({
       setWorks([]);
       setWorkText('');
       setPhotos([]);
+      setUsedRows([emptyMaterialRow()]);
+      setRating(null);
       setFiles([]);
       setMemo('');
       setRestoredAt(null);
@@ -610,14 +688,19 @@ export default function ReportScreen({
         icon: 'success',
         title: '보고를 제출했어요',
         message:
-          `${submittedWork}\n${isAuto ? '현장 전체 ' : ''}진행률 ${pct(
-            overallFrom,
-          )} → ${pct(overallAfter)} (+${round1(
+          `${submittedWork}\n${approved ? '' : '승인되면 '}${
+            isAuto ? '현장 전체 ' : ''
+          }진행률 ${pct(overallFrom)} → ${pct(overallAfter)} (+${round1(
             overallAfter - overallFrom,
           ).toFixed(1)}%p)\n` +
           `사진 ${submittedPhotos}장` +
+          (submittedUsed ? ` · 사용 자재 ${submittedUsed}가지` : '') +
           (submittedFiles ? ` · 파일 ${submittedFiles}개` : '') +
-          (submittedMemo ? ' · 메모 포함' : ''),
+          (submittedMemo ? ' · 메모 포함' : '') +
+          (submittedRating != null
+            ? ` · 평점 ${submittedRating.toFixed(1)}점`
+            : '') +
+          (approved ? '' : '\n관리자가 승인하면 진행률에 반영돼요.'),
         actions: [
           { label: '이력 보기', value: 'history', variant: 'secondary' },
           { label: '확인', value: 'ok', variant: 'primary' },
@@ -907,55 +990,103 @@ export default function ReportScreen({
             )}
           </Card>
 
-          {/* 현장 사진 */}
+          {/* 현장 사진: 위는 작업 전, 아래는 작업 후 */}
           <Card style={styles.gap}>
             <Text style={styles.cardTitle}>현장 사진</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.photoRow}
-            >
-              <Pressable
-                accessibilityLabel="사진 추가"
-                style={({ pressed }) => [
-                  styles.addPhoto,
-                  pressed && styles.addPhotoPressed,
-                  photos.length >= MAX_PHOTOS && styles.disabled,
-                ]}
-                onPress={openPhotoMenu}
-              >
-                <Camera size={24} color={colors.textSub} strokeWidth={1.8} />
-                <Text style={styles.addPhotoCount}>
-                  <Text style={photos.length > 0 ? styles.countOn : undefined}>
-                    {photos.length}
-                  </Text>
-                  /{MAX_PHOTOS}
-                </Text>
-              </Pressable>
-              {photos.map((p, i) => (
-                <Pressable
-                  key={p.uri}
-                  style={styles.thumb}
-                  onPress={() => setViewing(i)}
-                  accessibilityLabel={`사진 ${i + 1} 크게 보기`}
+            {PHASES.map(({ phase, label }) => {
+              const list = photos.filter(p => p.phase === phase);
+              return (
+                <View
+                  key={phase}
+                  style={phase === 'after' ? styles.phaseAfter : undefined}
                 >
-                  <Image source={{ uri: p.uri }} style={styles.thumbImage} />
-                  <Pressable
-                    style={styles.thumbRemove}
-                    onPress={() => removePhoto(p.uri)}
-                    hitSlop={8}
-                    accessibilityLabel={`사진 ${i + 1} 삭제`}
+                  <View style={styles.phaseHead}>
+                    <Text style={styles.phaseLabel}>{label}</Text>
+                    <Text style={styles.fileCount}>{list.length}장</Text>
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.photoRow}
                   >
-                    <X size={12} color={colors.white} strokeWidth={3} />
-                  </Pressable>
-                </Pressable>
-              ))}
-            </ScrollView>
+                    <Pressable
+                      accessibilityLabel={`${label} 사진 추가`}
+                      style={({ pressed }) => [
+                        styles.addPhoto,
+                        pressed && styles.addPhotoPressed,
+                      ]}
+                      onPress={() => openPhotoMenu(phase)}
+                    >
+                      <Camera
+                        size={24}
+                        color={colors.textSub}
+                        strokeWidth={1.8}
+                      />
+                      <Text style={styles.addPhotoCount}>
+                        <Text
+                          style={list.length > 0 ? styles.countOn : undefined}
+                        >
+                          {list.length}
+                        </Text>
+                        장
+                      </Text>
+                    </Pressable>
+                    {list.map((p, i) => (
+                      <Pressable
+                        key={p.uri}
+                        style={styles.thumb}
+                        onPress={() => setViewing(photos.indexOf(p))}
+                        accessibilityLabel={`${label} 사진 ${i + 1} 크게 보기`}
+                      >
+                        <Image
+                          source={{ uri: p.uri }}
+                          style={styles.thumbImage}
+                        />
+                        <Pressable
+                          style={styles.thumbRemove}
+                          onPress={() => removePhoto(p.uri)}
+                          hitSlop={8}
+                          accessibilityLabel={`${label} 사진 ${i + 1} 삭제`}
+                        >
+                          <X size={12} color={colors.white} strokeWidth={3} />
+                        </Pressable>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              );
+            })}
             {photos.length === 0 ? (
               <Text style={styles.hint}>
-                오늘 작업한 모습을 사진으로 남겨 주세요.
+                작업 전과 작업 후 모습을 사진으로 남겨 주세요.
               </Text>
             ) : null}
+          </Card>
+
+          {/* 오늘 사용한 자재: 승인되면 현장 자재 재고에서 빠진다 */}
+          <Card style={styles.gap}>
+            <View style={styles.fileTitleRow}>
+              <Text style={styles.cardTitleInline}>
+                오늘 사용한 자재 (선택)
+              </Text>
+              <Text style={styles.fileCount}>{usedItems.length}가지</Text>
+            </View>
+            <MaterialRowsEditor
+              rows={usedRows}
+              onChange={setUsedRows}
+              presets={(site.materials ?? []).map(m => ({
+                name: m.name,
+                unit: m.unit,
+                note: `${formatQty(m.quantity)}${m.unit} 남음`,
+              }))}
+              presetLabel="현장 자재(남은 양)"
+              onFull={() =>
+                dialog.toast('자재는 50가지까지 넣을 수 있어요', 'error')
+              }
+            />
+            <Text style={styles.hint}>
+              보고가 승인되면 사용한 양만큼 현장 자재에서 빠져요.
+            </Text>
           </Card>
 
           {/* 첨부 파일(엑셀·PDF 등) */}
@@ -1001,6 +1132,101 @@ export default function ReportScreen({
               엑셀·PDF·한글·워드·파워포인트 파일, 한 개당 20MB까지
             </Text>
           </Card>
+
+          {/* 오늘 작업 평점(현장 관리자만) */}
+          {isSiteOwner ? (
+            <Card style={styles.gap}>
+              <View style={styles.fileTitleRow}>
+                <Text style={styles.cardTitleInline}>
+                  오늘 작업 평점 (선택)
+                </Text>
+                {rating !== null ? (
+                  <Pressable hitSlop={8} onPress={() => setRating(null)}>
+                    <Text style={styles.restoredLink}>지우기</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              <View style={styles.progressTop}>
+                <View style={styles.stars}>
+                  {[1, 2, 3, 4, 5].map(n => {
+                    const fill = Math.max(
+                      0,
+                      Math.min(1, (rating ?? 0) - (n - 1)),
+                    );
+                    return (
+                      <Pressable
+                        key={n}
+                        onPress={() => tapStar(n)}
+                        hitSlop={4}
+                        accessibilityLabel={`${n}점`}
+                      >
+                        <Star
+                          size={STAR_SIZE}
+                          color={colors.yellow}
+                          strokeWidth={1.8}
+                        />
+                        {fill > 0 ? (
+                          <View
+                            style={[
+                              styles.starFill,
+                              { width: STAR_SIZE * fill },
+                            ]}
+                          >
+                            <Star
+                              size={STAR_SIZE}
+                              color={colors.yellow}
+                              fill={colors.yellow}
+                              strokeWidth={1.8}
+                            />
+                          </View>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={styles.stepper}>
+                  <Pressable
+                    accessibilityLabel="평점 0.1점 내리기"
+                    style={[
+                      styles.stepBtn,
+                      (rating ?? 0) <= RATING_MIN && styles.disabled,
+                    ]}
+                    onPress={() =>
+                      setRatingClamped((rating ?? RATING_MIN) - 0.1)
+                    }
+                    disabled={(rating ?? 0) <= RATING_MIN}
+                  >
+                    <Minus {...ICON} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="평점 0.1점 올리기"
+                    style={[
+                      styles.stepBtn,
+                      (rating ?? 0) >= RATING_MAX && styles.disabled,
+                    ]}
+                    onPress={() =>
+                      setRatingClamped(
+                        rating === null ? RATING_MIN : rating + 0.1,
+                      )
+                    }
+                    disabled={(rating ?? 0) >= RATING_MAX}
+                  >
+                    <Plus {...ICON} />
+                  </Pressable>
+                </View>
+              </View>
+              <Text style={styles.ratingValue}>
+                {rating === null
+                  ? '아직 안 매겼어요'
+                  : `${rating.toFixed(1)}점`}
+                <Text style={styles.ratingMax}> / 5.0</Text>
+              </Text>
+              <Text style={styles.hint}>
+                별을 누르면 1점씩, 같은 별을 한 번 더 누르면 0.5점이 빠져요. −/+
+                버튼으로 0.1점씩 바꿀 수 있어요.
+              </Text>
+            </Card>
+          ) : null}
 
           {/* 작업 메모 */}
           <Card style={styles.gap}>
@@ -1337,6 +1563,34 @@ const styles = StyleSheet.create({
 
   // 사진
   photoRow: { gap: 8 },
+  phaseHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  phaseLabel: { fontSize: 14, fontWeight: '600', color: colors.textSub },
+  phaseAfter: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  stars: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  starFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    height: STAR_SIZE,
+    overflow: 'hidden',
+  },
+  ratingValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 10,
+  },
+  ratingMax: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
   addPhoto: {
     width: 72,
     height: 72,

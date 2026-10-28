@@ -330,6 +330,10 @@ public class DemoDataSeeder implements CommandLineRunner {
             rows.add(r);
             to = from;
         }
+        // 검토 대기 보고는 진행률에 아직 반영하지 않는다(승인돼야 오른다)
+        if (!rows.isEmpty() && !rows.get(0).isApproved()) {
+            process.setProgress(rows.get(0).getFromProgress());
+        }
         reports.saveAll(rows);
     }
 

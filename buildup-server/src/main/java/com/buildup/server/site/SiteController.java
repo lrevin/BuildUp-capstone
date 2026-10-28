@@ -64,6 +64,12 @@ public class SiteController {
     }
 
     @Operation(summary = "현장 삭제")
+    /** 최고 책임자: 현장 자재 재고 바꾸기 { materials: [{ name, quantity, unit }] } */
+    @PutMapping("/{siteId}/materials")
+    public SiteDto setMaterials(@PathVariable Long siteId, @RequestBody SiteDtos.MaterialsRequest req) {
+        return service.setMaterials(CurrentUser.id(), siteId, req.materials());
+    }
+
     @DeleteMapping("/{siteId}")
     public Map<String, Boolean> delete(@PathVariable Long siteId) {
         service.delete(CurrentUser.id(), siteId);

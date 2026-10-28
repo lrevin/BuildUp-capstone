@@ -98,16 +98,24 @@ public class Site {
     @OrderBy("joinedAt ASC")
     private List<SiteMember> members = new ArrayList<>();
 
-    // ---- 보고에서 계산하는 값(DB 칸 없음, 읽을 때 계산) ----
+    /** 현장 자재 재고(남은 양). 보고가 승인되면 쓴 양만큼 줄어든다 */
+    @OneToMany(mappedBy = "site", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("position ASC")
+    private List<SiteMaterial> materials = new ArrayList<>();
 
-    /** 가장 최근 보고의 '보고 후 진행률' */
+    // ---- 보고에서 계산하는 값(DB 칸 없음, 읽을 때 계산) ----
+    // 진행률은 승인된 보고만 반영한다(검토 대기·보완 요청 보고는 승인될 때까지 반영하지 않음)
+
+    /** 가장 최근 승인된 보고의 '보고 후 진행률' */
     @Setter(AccessLevel.NONE)
-    @Formula("(select r.to_progress from reports r where r.site_id = id order by r.created_at desc, r.id desc limit 1)")
+    @Formula("(select r.to_progress from reports r where r.site_id = id and r.review_status = 'APPROVED'"
+            + " order by r.created_at desc, r.id desc limit 1)")
     private Double latestReportTo;
 
-    /** 가장 최근 보고의 공정(null이면 직접 입력 보고) */
+    /** 가장 최근 승인된 보고의 공정(null이면 직접 입력 보고) */
     @Setter(AccessLevel.NONE)
-    @Formula("(select r.process_key from reports r where r.site_id = id order by r.created_at desc, r.id desc limit 1)")
+    @Formula("(select r.process_key from reports r where r.site_id = id and r.review_status = 'APPROVED'"
+            + " order by r.created_at desc, r.id desc limit 1)")
     private String latestReportProcess;
 
     /** 마지막 보고 시각 */
@@ -130,7 +138,7 @@ public class Site {
     /**
      * 현장 전체 진행률(%)
      * - 자동 계산: 공정 가중치로 계산
-     * - 직접 입력: 가장 최근 보고 값. 자동 계산 중에 올린 공정 보고가 마지막이면(방식을 바꾼 직후) 공정으로 계산한 값에서 이어진다
+     * - 직접 입력: 가장 최근 승인된 보고 값. 자동 계산 중에 올린 공정 보고가 마지막이면(방식을 바꾼 직후) 공정으로 계산한 값에서 이어진다
      */
     public double overallProgress() {
         if (isAuto() || latestReportProcess != null) {

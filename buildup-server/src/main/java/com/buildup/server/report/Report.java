@@ -1,9 +1,13 @@
 package com.buildup.server.report;
 
+import com.buildup.server.material.MaterialItem;
 import com.buildup.server.site.Site;
 import com.buildup.server.user.User;
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -72,6 +76,20 @@ public class Report {
     @Column(columnDefinition = "text")
     private String memo = "";
 
+    /** 현장 관리자가 매긴 오늘 작업 평점(0.5 ~ 5.0, 소수점 한 자리). 없으면 null */
+    @Column(columnDefinition = "decimal(2,1)")
+    private Double rating;
+
+    /** 오늘 사용한 자재(승인되면 현장 자재 재고에서 뺀다) */
+    @ElementCollection
+    @CollectionTable(name = "report_material_usages", joinColumns = @JoinColumn(name = "report_id"))
+    @OrderColumn(name = "position")
+    private List<MaterialItem> materialUsages = new ArrayList<>();
+
+    /** 사용한 자재를 현장 재고에서 뺀 시각(승인 전·사용 자재 없음이면 null) */
+    @Column(name = "materials_applied_at", columnDefinition = "datetime(6)")
+    private Instant materialsAppliedAt;
+
     // ---- 작업일보 항목(예전 보고만, 지금은 받지 않음) ----
     @Column(length = 100)
     private String weather;
@@ -138,6 +156,11 @@ public class Report {
 
     public String status() {
         return reviewStatus == null ? APPROVED : reviewStatus;
+    }
+
+    /** 승인된 보고인가(진행률·자재 재고에 반영된 보고) */
+    public boolean isApproved() {
+        return APPROVED.equals(status());
     }
 
     /** 메모를 고쳤는가(만든 뒤 1초 넘게 지나서 바뀌었으면) */

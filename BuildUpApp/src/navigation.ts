@@ -33,6 +33,7 @@ export type AppStackParamList = {
   ReportDetail: { report: Report };
   Members: { siteId: string; siteName: string; isOwner: boolean };
   Materials: { siteId: string; siteName: string };
+  SiteStock: { siteId: string; siteName: string }; // 최고 책임자: 현장 자재 재고 수정
   ManagerSetup: { next?: 'CreateSite' } | undefined; // 현장 관리자로 전환 / 보고 체계 변경 (next: 전환 뒤 갈 화면)
   // 본사 관계자 화면
   HqHome: undefined;

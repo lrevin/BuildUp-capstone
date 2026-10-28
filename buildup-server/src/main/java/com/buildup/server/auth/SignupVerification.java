@@ -61,8 +61,9 @@ public class SignupVerification {
         String email = normalizeEmail(rawEmail);
         // 가입 여부를 마구 알아보지 못하게 횟수부터 센다
         countSend(Kind.EMAIL, email);
-        users.findByEmail(email).ifPresent(u -> {
-            throw u.isWithdrawn() ? withdrawnEmail() : ApiException.conflict("이미 가입된 이메일입니다.");
+        // 탈퇴 신청 7일 안의 이메일은 다시 가입하면 원래 계정이 복구되므로 인증 코드를 보낸다
+        users.findByEmail(email).filter(u -> !u.isWithdrawn()).ifPresent(u -> {
+            throw ApiException.conflict("이미 가입된 이메일입니다.");
         });
         sender.email(email, verifications.newCode(Kind.EMAIL, email));
         return sent();
@@ -73,10 +74,7 @@ public class SignupVerification {
         return new EmailVerifiedResponse(token, verifications.ttlSeconds(Kind.EMAIL));
     }
 
-    /** 탈퇴를 신청한 이메일: 7일 뒤 삭제되면 다시 가입할 수 있다 */
-    static ApiException withdrawnEmail() {
-        return ApiException.conflict("탈퇴 처리 중인 이메일이에요. 탈퇴 7일 뒤에 다시 가입할 수 있어요.");
-    }
+
 
     /**
      * 비밀번호 재설정 코드 보내기. 가입 여부를 알아내지 못하게 가입하지 않은 이메일이어도 같은 응답을 준다

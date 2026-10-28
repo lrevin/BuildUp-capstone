@@ -32,13 +32,21 @@ public final class ReportDtos {
         }
     }
 
-    /** 사진 1장과 촬영 정보(없으면 null) */
-    public record PhotoDto(String url, String takenAt, Double latitude, Double longitude) {
+    /** 사진 1장과 촬영 정보(없으면 null). phase: before(작업 전) | after(작업 후) | null(예전 보고, 구분 없음) */
+    public record PhotoDto(String url, String takenAt, Double latitude, Double longitude, String phase) {
 
         static PhotoDto of(ReportPhoto p) {
-            return new PhotoDto(FileStorage.url(p.getKey()), Times.iso(p.getTakenAt()), p.getLatitude(), p.getLongitude());
+            return new PhotoDto(FileStorage.url(p.getKey()), Times.iso(p.getTakenAt()), p.getLatitude(), p.getLongitude(),
+                    p.getPhase());
         }
     }
+
+    /** 사진 구분 값 */
+    public static final String BEFORE = "before";
+    public static final String AFTER = "after";
+
+    /** 오늘 사용한 자재 한 줄(보고 제출 요청·응답에 같이 쓴다) */
+    public record MaterialUsageDto(String name, double quantity, String unit) {}
 
     /** 보고를 제출한 위치 */
     public record LocationDto(double latitude, double longitude, Double accuracy) {}
@@ -84,7 +92,9 @@ public final class ReportDtos {
             List<CheckDto> checks,
             boolean canEdit,
             boolean canDelete,
-            boolean canReview) {
+            boolean canReview,
+            Double rating,
+            List<MaterialUsageDto> materialUsages) {
 
         /** overall: 이 보고 전·후 현장 전체 진행률(OverallProgress로 계산) */
         static ReportDto of(Report r, double[] overall, boolean canEdit, boolean canDelete, boolean canReview) {
@@ -114,7 +124,11 @@ public final class ReportDtos {
                     r.getChecks().stream().map(c -> new CheckDto(c.getCheckType(), c.getMessage())).toList(),
                     canEdit,
                     canDelete,
-                    canReview);
+                    canReview,
+                    r.getRating(),
+                    r.getMaterialUsages().stream()
+                            .map(m -> new MaterialUsageDto(m.getName(), m.getQuantity(), m.getUnit()))
+                            .toList());
         }
     }
 

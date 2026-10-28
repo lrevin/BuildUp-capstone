@@ -36,6 +36,10 @@ public class ReportPhoto {
     @Column(nullable = false)
     private int position;
 
+    /** 작업 전(before) / 작업 후(after). 예전 보고의 사진은 구분 없음(null) */
+    @Column(length = 10)
+    private String phase;
+
     @Column(name = "s3_key", unique = true, length = 500)
     private String key;
 

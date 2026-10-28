@@ -116,7 +116,68 @@ public class SiteService {
                 s.getLatitude(),
                 s.getLongitude(),
                 mode(s),
-                processes(s));
+                processes(s),
+                materials(s));
+    }
+
+    /** 현장 자재 재고(남은 양) */
+    private static List<SiteDtos.SiteMaterialDto> materials(Site s) {
+        return s.getMaterials().stream()
+                .map(m -> new SiteDtos.SiteMaterialDto(m.getName(), m.getQuantity(), m.getUnit(), Times.iso(m.getUpdatedAt())))
+                .toList();
+    }
+
+    /** 현장 자재 재고를 입력값으로 바꾼다(같은 이름·단위는 합치고, 빈 줄은 건너뜀). 이미 있는 줄은 고쳐 쓴다 */
+    private static void replaceMaterials(Site site, List<SiteDtos.MaterialInput> input) {
+        List<SiteMaterial> next = new ArrayList<>();
+        Instant now = Instant.now();
+        for (SiteDtos.MaterialInput in : input == null ? List.<SiteDtos.MaterialInput>of() : input) {
+            String name = in.name() == null ? "" : in.name().trim();
+            String unit = in.unit() == null ? "" : in.unit().trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (name.length() > 100 || unit.length() > 30) {
+                throw ApiException.badRequest("자재 이름은 100자, 단위는 30자까지 쓸 수 있어요.");
+            }
+            double qty = in.quantity() == null ? 0 : in.quantity();
+            if (!Double.isFinite(qty) || qty < 0 || qty > 1e12) {
+                throw ApiException.badRequest("'" + name + "' 수량을 0 이상으로 입력해 주세요.");
+            }
+            qty = Math.round(qty * 1000) / 1000.0;
+            SiteMaterial same = next.stream().filter(m -> m.sameAs(name, unit)).findFirst().orElse(null);
+            if (same != null) {
+                same.setQuantity(same.getQuantity() + qty);
+                continue;
+            }
+            SiteMaterial row = site.getMaterials().stream()
+                    .filter(m -> m.sameAs(name, unit))
+                    .findFirst()
+                    .orElseGet(() -> new SiteMaterial(site, 0, name, 0, unit));
+            if (row.getQuantity() != qty || !row.getName().equals(name)) {
+                row.setUpdatedAt(now);
+            }
+            row.setName(name);
+            row.setUnit(unit);
+            row.setQuantity(qty);
+            row.setPosition(next.size());
+            next.add(row);
+        }
+        if (next.size() > 100) {
+            throw ApiException.badRequest("자재는 100가지까지 넣을 수 있어요.");
+        }
+        site.getMaterials().retainAll(next);
+        next.stream().filter(m -> !site.getMaterials().contains(m)).forEach(site.getMaterials()::add);
+        site.getMaterials().sort(java.util.Comparator.comparingInt(SiteMaterial::getPosition));
+    }
+
+    /** 최고 책임자: 현장 자재 재고 바꾸기(새로 들어온 자재 반영 등) */
+    @Transactional
+    public SiteDto setMaterials(Long userId, Long siteId, List<SiteDtos.MaterialInput> input) {
+        Site site = ownedSite(userId, siteId, "자재 재고를 수정");
+        replaceMaterials(site, input);
+        sites.flush();
+        return toDto(site, userId);
     }
 
     private static String mode(Site s) {
@@ -217,6 +278,8 @@ public class SiteService {
         if (Site.MODE_AUTO.equals(req.progressMode())) {
             applyMode(site, Site.MODE_AUTO, req.processes());
         }
+        // 최고 책임자가 지금 현장에 있는 자재 양을 넣는다(선택)
+        replaceMaterials(site, req.materials());
         sites.save(site);
         return toDto(site, userId);
     }
