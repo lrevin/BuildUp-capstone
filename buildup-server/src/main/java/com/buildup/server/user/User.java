@@ -73,6 +73,16 @@ public class User {
     @Column(columnDefinition = "datetime(6)")
     private Instant deletedAt;
 
+    /** 가입 때 이용약관 · 개인정보 수집·이용에 동의한 시각과 그때의 약관 버전(시행일) */
+    @Column(columnDefinition = "datetime(6)")
+    private Instant termsAgreedAt;
+
+    @Column(columnDefinition = "datetime(6)")
+    private Instant privacyAgreedAt;
+
+    @Column(length = 20)
+    private String policyVersion;
+
     /** 본사 소속(한 사람은 활성 소속 하나) */
     @Getter(AccessLevel.NONE)
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)

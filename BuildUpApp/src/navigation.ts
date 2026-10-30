@@ -8,6 +8,7 @@ export type AuthStackParamList = {
   SignUp: { role: Role; kakao?: KakaoSignup };
   Server: undefined; // 개발용: 로그인 화면 로고를 길게 눌러 연다
   PasswordReset: undefined; // 비밀번호 찾기(로그인 화면 · 내 정보)
+  Policy: { kind: 'terms' | 'privacy' }; // 이용약관 · 개인정보 처리방침
 };
 
 // (로그인 후) 현장 관리자 전환·보고 체계 변경은 AppStack에
@@ -42,6 +43,7 @@ export type AppStackParamList = {
     siteId: string;
     siteName: string;
   };
+  Policy: { kind: 'terms' | 'privacy' }; // 이용약관 · 개인정보 처리방침(내 정보)
 };
 
 export type RootStackParamList = AuthStackParamList & AppStackParamList;

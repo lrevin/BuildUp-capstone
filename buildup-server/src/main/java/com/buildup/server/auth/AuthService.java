@@ -73,8 +73,12 @@ public class AuthService {
         return ApiException.forbidden("탈퇴 신청한 계정이에요. 7일 안에 같은 이메일로 다시 가입하면 계정과 현장 기록이 그대로 복구돼요.");
     }
 
+    /** 지금 시행 중인 이용약관·개인정보 처리방침 버전(시행일). 앱·웹 약관 화면의 시행일과 같게 */
+    public static final String POLICY_VERSION = "2026-10-30";
+
     @Transactional
     public AuthResponse signUp(SignUpRequest req) {
+        checkAgreements(req);
         String email = normalize(req.email());
         User existing = users.findByEmail(email).orElse(null);
         if (existing != null && !existing.isWithdrawn()) {
@@ -89,6 +93,25 @@ public class AuthService {
             checked.undo().run();
             throw e;
         }
+    }
+
+    // 인증을 꺼내 쓰기 전에 확인한다(동의만 빠졌을 때 인증을 다시 받지 않아도 되게)
+    private static void checkAgreements(SignUpRequest req) {
+        if (req.agreeAge() == null && req.agreeTerms() == null && req.agreePrivacy() == null) {
+            throw ApiException.badRequest("약관 동의가 필요해요. 앱이 예전 버전이면 최신 버전으로 업데이트해 주세요.");
+        }
+        if (!Boolean.TRUE.equals(req.agreeAge())) {
+            throw ApiException.badRequest("만 14세 이상만 가입할 수 있어요.");
+        }
+        if (!Boolean.TRUE.equals(req.agreeTerms()) || !Boolean.TRUE.equals(req.agreePrivacy())) {
+            throw ApiException.badRequest("이용약관과 개인정보 수집·이용에 동의해 주세요.");
+        }
+    }
+
+    private static void recordAgreements(User user, Instant now) {
+        user.setTermsAgreedAt(now);
+        user.setPrivacyAgreedAt(now);
+        user.setPolicyVersion(POLICY_VERSION);
     }
 
     /**
@@ -111,6 +134,7 @@ public class AuthService {
         if (checked.phoneVerified()) {
             user.setPhoneVerifiedAt(now);
         }
+        recordAgreements(user, now);
         if (checked.kakao() != null
                 && socials.findByProviderAndProviderUserId(SocialAccount.KAKAO, checked.kakao().target()).isEmpty()) {
             socials.saveAndFlush(new SocialAccount(user, SocialAccount.KAKAO, checked.kakao().target(),
@@ -146,6 +170,7 @@ public class AuthService {
         Instant now = Instant.now();
         user.setEmailVerifiedAt(checked.emailVerified() ? now : null);
         user.setPhoneVerifiedAt(checked.phoneVerified() ? now : null);
+        recordAgreements(user, now);
         try {
             users.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {

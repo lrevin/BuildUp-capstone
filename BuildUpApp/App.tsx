@@ -24,6 +24,7 @@ import ManagerSetupScreen from './src/screens/ManagerSetupScreen';
 import MaterialRequestScreen from './src/screens/MaterialRequestScreen';
 import MaterialsScreen from './src/screens/MaterialsScreen';
 import SiteStockScreen from './src/screens/SiteStockScreen';
+import PolicyScreen from './src/screens/PolicyScreen';
 import MembersScreen from './src/screens/MembersScreen';
 import PasswordResetScreen from './src/screens/PasswordResetScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -93,6 +94,7 @@ function RootNavigator() {
           <Stack.Screen name="Members" component={MembersScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="PasswordReset" component={PasswordResetScreen} />
+          <Stack.Screen name="Policy" component={PolicyScreen} />
         </>
       ) : user ? (
         <>
@@ -117,6 +119,7 @@ function RootNavigator() {
             name="MaterialRequest"
             component={MaterialRequestScreen}
           />
+          <Stack.Screen name="Policy" component={PolicyScreen} />
         </>
       ) : (
         <>
@@ -126,6 +129,11 @@ function RootNavigator() {
           <Stack.Screen
             name="PasswordReset"
             component={PasswordResetScreen}
+            navigationKey="guest"
+          />
+          <Stack.Screen
+            name="Policy"
+            component={PolicyScreen}
             navigationKey="guest"
           />
           {/* 개발용 서버 설정: 로그인 화면 로고를 길게 누르면 열린다(사용자에게는 보이지 않음) */}

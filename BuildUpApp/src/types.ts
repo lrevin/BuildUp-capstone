@@ -40,6 +40,10 @@ export interface SignUpInput {
   emailVerificationToken?: string; // 이메일 인증 결과(카카오가 인증한 이메일이면 없어도 됨)
   phoneVerificationToken?: string; // 휴대폰 인증 결과(필수)
   signupToken?: string; // 카카오 첫 로그인 때 받은 가입 토큰
+  // 필수 동의: 만 14세 이상 · 이용약관 · 개인정보 수집·이용(모두 true여야 가입)
+  agreeAge: boolean;
+  agreeTerms: boolean;
+  agreePrivacy: boolean;
 }
 
 // 인증 코드를 보냄: 유효 시간, 다시 받을 수 있을 때까지(초)

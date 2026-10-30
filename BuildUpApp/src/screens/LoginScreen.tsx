@@ -104,6 +104,24 @@ export default function LoginScreen({ navigation }: ScreenProps<'Login'>) {
             <Text style={styles.signupLink}>회원가입</Text>
           </Pressable>
         </View>
+
+        <View style={styles.policyRow}>
+          <Pressable
+            hitSlop={8}
+            onPress={() => navigation.navigate('Policy', { kind: 'terms' })}
+          >
+            <Text style={styles.policyText}>이용약관</Text>
+          </Pressable>
+          <Text style={styles.policyText}>·</Text>
+          <Pressable
+            hitSlop={8}
+            onPress={() => navigation.navigate('Policy', { kind: 'privacy' })}
+          >
+            <Text style={[styles.policyText, styles.policyStrong]}>
+              개인정보 처리방침
+            </Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -133,6 +151,15 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   forgot: { alignSelf: 'center', marginTop: 14 },
+  policyRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 20,
+    marginBottom: 24,
+  },
+  policyText: { fontSize: 12, color: colors.ink400 },
+  policyStrong: { fontWeight: '700' },
   forgotText: {
     fontSize: 13,
     color: colors.textSub,

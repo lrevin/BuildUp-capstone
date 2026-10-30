@@ -34,7 +34,11 @@ public final class AuthDtos {
             // 휴대폰 인증 결과(POST /api/auth/phone/verify) — 항상 필요
             String phoneVerificationToken,
             // 카카오 첫 로그인 때 받은 가입 토큰(POST /api/auth/oauth/kakao)
-            String signupToken) {}
+            String signupToken,
+            // 필수 동의: 만 14세 이상 · 이용약관 · 개인정보 수집·이용(모두 true여야 가입)
+            Boolean agreeAge,
+            Boolean agreeTerms,
+            Boolean agreePrivacy) {}
 
     // ---- 가입 인증(이메일·휴대폰) ----
 

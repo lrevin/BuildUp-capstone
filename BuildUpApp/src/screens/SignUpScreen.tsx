@@ -6,6 +6,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { Check, ChevronRight, CircleCheck } from 'lucide-react-native';
 import { Text } from '../components/Text';
 import { errorMessage } from '../api/client';
 import {
@@ -67,6 +68,9 @@ export default function SignUpScreen({
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
   const [loading, setLoading] = useState(false);
+  // 필수 동의 3가지(실제 앱처럼 가입 버튼 위에서 받는다)
+  const [agree, setAgree] = useState({ age: false, terms: false, privacy: false });
+  const allAgreed = agree.age && agree.terms && agree.privacy;
   const dialog = useDialog();
 
   const validate = () => {
@@ -101,6 +105,9 @@ export default function SignUpScreen({
     if (!kakao && password !== password2) {
       return '비밀번호가 서로 달라요.';
     }
+    if (!allAgreed) {
+      return '필수 약관에 모두 동의해 주세요.';
+    }
     return null;
   };
 
@@ -129,6 +136,9 @@ export default function SignUpScreen({
           : emailToken ?? undefined,
         phoneVerificationToken: phoneToken ?? undefined,
         signupToken: kakao?.signupToken,
+        agreeAge: agree.age,
+        agreeTerms: agree.terms,
+        agreePrivacy: agree.privacy,
       });
     } catch (e) {
       dialog.notice({
@@ -317,6 +327,65 @@ export default function SignUpScreen({
             </>
           )}
         </View>
+
+        <View style={styles.agreeCard}>
+          <Pressable
+            onPress={() => {
+              const next = !allAgreed;
+              setAgree({ age: next, terms: next, privacy: next });
+            }}
+            style={styles.agreeAll}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: allAgreed }}
+          >
+            <CircleCheck
+              size={24}
+              color={allAgreed ? colors.white : colors.textMuted}
+              fill={allAgreed ? colors.navy : 'transparent'}
+            />
+            <Text style={styles.agreeAllText}>전체 동의하기</Text>
+          </Pressable>
+          <View style={styles.agreeDivider} />
+          {(
+            [
+              ['age', '만 14세 이상입니다', null],
+              ['terms', '이용약관 동의', 'terms'],
+              ['privacy', '개인정보 수집·이용 동의', 'privacy'],
+            ] as const
+          ).map(([key, label, doc]) => (
+            <View key={key} style={styles.agreeRow}>
+              <Pressable
+                onPress={() => setAgree(a => ({ ...a, [key]: !a[key] }))}
+                style={styles.agreeCheck}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: agree[key] }}
+                accessibilityLabel={`(필수) ${label}`}
+              >
+                <Check
+                  size={18}
+                  strokeWidth={2.6}
+                  color={agree[key] ? colors.navy : colors.border}
+                />
+                <Text style={styles.agreeText}>
+                  <Text style={styles.agreeRequired}>[필수] </Text>
+                  {label}
+                </Text>
+              </Pressable>
+              {doc ? (
+                <Pressable
+                  onPress={() => navigation.navigate('Policy', { kind: doc })}
+                  hitSlop={8}
+                  style={styles.agreeView}
+                  accessibilityRole="link"
+                  accessibilityLabel={`${label} 내용 보기`}
+                >
+                  <Text style={styles.agreeViewText}>보기</Text>
+                  <ChevronRight size={14} color={colors.textSub} />
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+        </View>
       </ScrollView>
       <BottomBar dark>
         <Button title="가입하기" onPress={onSubmit} loading={loading} />
@@ -364,6 +433,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   segActive: { backgroundColor: colors.white, elevation: 1 },
+  agreeCard: {
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginTop: 12,
+  },
+  agreeAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+  },
+  agreeAllText: { fontSize: 16, fontWeight: '700', color: colors.text },
+  agreeDivider: {
+    height: 1,
+    backgroundColor: colors.divider,
+    marginVertical: 4,
+  },
+  agreeRow: { flexDirection: 'row', alignItems: 'center' },
+  agreeCheck: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingLeft: 3,
+  },
+  agreeText: { fontSize: 14, color: colors.text },
+  agreeRequired: { color: colors.textSub },
+  agreeView: { flexDirection: 'row', alignItems: 'center', paddingLeft: 8 },
+  agreeViewText: { fontSize: 13, color: colors.textSub },
   segText: { fontSize: 14, fontWeight: '500', color: colors.textSub },
   segTextOn: { fontWeight: '700', color: colors.text },
 });

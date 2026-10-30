@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.buildup.server.auth.AccountDeletion;
+import com.buildup.server.auth.AuthService;
 import com.buildup.server.auth.KakaoClient;
 import com.buildup.server.user.UserRepository;
 import java.time.Duration;
@@ -181,6 +182,39 @@ class ApiFlowTests {
     }
 
     // ---------- 가입 인증(이메일·휴대폰 필수), 카카오 ----------
+
+    @Test
+    void 가입은_만14세_이용약관_개인정보_동의가_모두_있어야_된다() throws Exception {
+        Map<String, Object> form = verified(Map.of("name", "동의시험", "email", "agree-test@buildup.kr",
+                "phone", "010-4545-6767", "password", "password123", "role", "worker"));
+
+        // 예전 앱(동의 항목 없음) → 업데이트 안내
+        Map<String, Object> old = new HashMap<>(form);
+        old.put("agreeTerms", null);
+        Res none = send("POST", "/api/auth/signup", null, old);
+        assertThat(none.status()).isEqualTo(400);
+        assertThat(none.body().get("message").toString()).contains("최신 버전");
+
+        Map<String, Object> young = new HashMap<>(form);
+        young.putAll(Map.of("agreeAge", false, "agreeTerms", true, "agreePrivacy", true));
+        Res under14 = send("POST", "/api/auth/signup", null, young);
+        assertThat(under14.status()).isEqualTo(400);
+        assertThat(under14.body().get("message")).isEqualTo("만 14세 이상만 가입할 수 있어요.");
+
+        Map<String, Object> noPrivacy = new HashMap<>(form);
+        noPrivacy.putAll(Map.of("agreeAge", true, "agreeTerms", true, "agreePrivacy", false));
+        assertThat(send("POST", "/api/auth/signup", null, noPrivacy).status()).isEqualTo(400);
+
+        // 동의가 빠져 거절돼도 인증은 그대로 남아 있어서 바로 다시 가입할 수 있다
+        Map<String, Object> ok = new HashMap<>(form);
+        ok.putAll(Map.of("agreeAge", true, "agreeTerms", true, "agreePrivacy", true));
+        Res su = send("POST", "/api/auth/signup", null, ok);
+        assertThat(su.status()).as(String.valueOf(su.body())).isEqualTo(200);
+        var agreed = users.findByEmail("agree-test@buildup.kr").orElseThrow();
+        assertThat(agreed.getPolicyVersion()).isEqualTo(AuthService.POLICY_VERSION);
+        assertThat(agreed.getTermsAgreedAt()).isNotNull();
+        assertThat(agreed.getPrivacyAgreedAt()).isNotNull();
+    }
 
     @Test
     void 가입은_이메일과_휴대폰_인증을_마쳐야_된다() throws Exception {
@@ -1017,6 +1051,14 @@ class ApiFlowTests {
 
     @SuppressWarnings("unchecked")
     private Res send(String method, String path, String token, Object json) throws Exception {
+        // 가입 요청에 동의 항목을 따로 적지 않았으면 필수 동의를 모두 한 것으로 보낸다(동의 시험은 직접 적어서 보냄)
+        if ("/api/auth/signup".equals(path) && json instanceof Map<?, ?> m && !m.containsKey("agreeTerms")) {
+            Map<Object, Object> withAgree = new HashMap<>(m);
+            withAgree.put("agreeAge", true);
+            withAgree.put("agreeTerms", true);
+            withAgree.put("agreePrivacy", true);
+            json = withAgree;
+        }
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
         if (token != null) {
             b.header("Authorization", "Bearer " + token);

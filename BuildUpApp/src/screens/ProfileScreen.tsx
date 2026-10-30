@@ -8,6 +8,7 @@ import { ChevronRight } from 'lucide-react-native';
 import { useAuth, useUser } from '../auth';
 import { useDialog } from '../components/Dialog';
 import { AppHeader, Avatar, Button, Card } from '../components/ui';
+import { POLICY_OPERATOR } from '../data/policies';
 import { ScreenProps } from '../navigation';
 import { colors, shadow } from '../theme';
 
@@ -167,6 +168,22 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
           <Text style={styles.managerDesc}>이메일 인증 후 새로 정하기</Text>
           <ChevronRight size={18} color={colors.textMuted} />
         </Pressable>
+        <Pressable
+          style={styles.connection}
+          onPress={() => navigation.navigate('Policy', { kind: 'terms' })}
+        >
+          <Text style={[styles.managerText, styles.flex]}>이용약관</Text>
+          <ChevronRight size={18} color={colors.textMuted} />
+        </Pressable>
+        <Pressable
+          style={styles.connection}
+          onPress={() => navigation.navigate('Policy', { kind: 'privacy' })}
+        >
+          <Text style={[styles.managerText, styles.flex]}>
+            개인정보 처리방침
+          </Text>
+          <ChevronRight size={18} color={colors.textMuted} />
+        </Pressable>
         <Button
           title="로그아웃"
           variant="outline"
@@ -181,7 +198,10 @@ export default function ProfileScreen({ navigation }: ScreenProps<'Profile'>) {
         <Pressable style={styles.reset} onPress={onWithdraw} hitSlop={8}>
           <Text style={styles.withdrawText}>회원 탈퇴</Text>
         </Pressable>
-        <Text style={styles.version}>Build Up v1.0 · 경동대 캡스톤</Text>
+        <Text style={styles.version}>
+          Build Up v1.0 · {POLICY_OPERATOR}
+          {'\n'}비영리 학생 프로젝트 · 무료 서비스
+        </Text>
       </ScrollView>
     </View>
   );
@@ -215,6 +235,7 @@ const styles = StyleSheet.create({
   },
   managerRow: { marginTop: 20 },
   managerText: { fontSize: 15, fontWeight: '700', color: colors.text },
+  flex: { flex: 1 },
   managerDesc: {
     flex: 1,
     textAlign: 'right',
@@ -236,6 +257,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     color: colors.textMuted,
+    lineHeight: 18,
     marginTop: 20,
   },
 });
