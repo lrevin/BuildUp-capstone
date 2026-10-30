@@ -79,39 +79,42 @@ export function Field({ label, hint, style, ...rest }: FieldProps) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        placeholderTextColor={colors.textMuted}
-        {...rest}
-        secureTextEntry={isPassword && !visible}
-        style={[
-          styles.input,
-          focused && styles.inputFocused,
-          isPassword && styles.inputWithIcon,
-          style,
-        ]}
-        onFocus={e => {
-          setFocused(true);
-          rest.onFocus?.(e);
-        }}
-        onBlur={e => {
-          setFocused(false);
-          rest.onBlur?.(e);
-        }}
-      />
-      {isPassword ? (
-        <Pressable
-          style={styles.eye}
-          onPress={() => setVisible(v => !v)}
-          hitSlop={8}
-          accessibilityLabel={visible ? '비밀번호 숨기기' : '비밀번호 보기'}
-        >
-          {visible ? (
-            <EyeOff size={20} color={colors.textMuted} />
-          ) : (
-            <Eye size={20} color={colors.textMuted} />
-          )}
-        </Pressable>
-      ) : null}
+      {/* 입력칸과 눈 아이콘을 한 상자에 넣어 아이콘을 입력칸 높이의 가운데에 둔다 */}
+      <View>
+        <TextInput
+          placeholderTextColor={colors.textMuted}
+          {...rest}
+          secureTextEntry={isPassword && !visible}
+          style={[
+            styles.input,
+            focused && styles.inputFocused,
+            isPassword && styles.inputWithIcon,
+            style,
+          ]}
+          onFocus={e => {
+            setFocused(true);
+            rest.onFocus?.(e);
+          }}
+          onBlur={e => {
+            setFocused(false);
+            rest.onBlur?.(e);
+          }}
+        />
+        {isPassword ? (
+          <Pressable
+            style={styles.eye}
+            onPress={() => setVisible(v => !v)}
+            hitSlop={8}
+            accessibilityLabel={visible ? '비밀번호 숨기기' : '비밀번호 보기'}
+          >
+            {visible ? (
+              <EyeOff size={20} color={colors.textMuted} />
+            ) : (
+              <Eye size={20} color={colors.textMuted} />
+            )}
+          </Pressable>
+        ) : null}
+      </View>
       {hint ? <Text style={styles.fieldHint}>{hint}</Text> : null}
     </View>
   );
@@ -346,7 +349,9 @@ const styles = StyleSheet.create({
   eye: {
     position: 'absolute',
     right: 14,
-    top: 21 + 16, // 라벨 높이 + (입력칸 52 - 아이콘 20) / 2
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
   },
   fieldHint: { fontSize: 12, color: colors.textMuted, marginTop: 6 },
 
